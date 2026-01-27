@@ -1,0 +1,40 @@
+{
+  "name": "awcp-monorepo",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Agent Workspace Collaboration Protocol - Monorepo",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces",
+    "clean": "npm run clean --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "lint": "eslint packages/*/src/**/*.ts",
+    "typecheck": "tsc --build"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "typescript": "^5.3.0",
+    "eslint": "^8.55.0",
+    "@typescript-eslint/eslint-plugin": "^6.13.0",
+    "@typescript-eslint/parser": "^6.13.0",
+    "vitest": "^1.0.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/anthropics/awcp.git"
+  },
+  "license": "Apache-2.0",
+  "keywords": [
+    "agent",
+    "a2a",
+    "collaboration",
+    "workspace",
+    "multi-agent",
+    "llm"
+  ]
+}

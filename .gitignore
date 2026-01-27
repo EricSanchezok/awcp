@@ -1,0 +1,43 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build outputs
+dist/
+*.tsbuildinfo
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+
+# Test coverage
+coverage/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# AWCP runtime data (for development)
+.awcp/
+/var/awcp/
+
+# SSH keys (never commit)
+*.pem
+*.key
+id_rsa*
+id_ed25519*
+
+# Private documents
+papers/
+ref/
