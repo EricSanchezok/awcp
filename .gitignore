@@ -12,6 +12,12 @@ dist/
 **/src/**/*.d.ts
 **/src/**/*.d.ts.map
 
+# Compiled files in experiments (co-located with .ts sources)
+experiments/**/*.js
+experiments/**/*.js.map
+experiments/**/*.d.ts
+experiments/**/*.d.ts.map
+
 # IDE
 .idea/
 .vscode/
