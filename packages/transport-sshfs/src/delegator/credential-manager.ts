@@ -1,4 +1,4 @@
-import { unlink, mkdir, readFile, writeFile, appendFile } from 'node:fs/promises';
+import { unlink, mkdir, readFile, writeFile, appendFile, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { spawn } from 'node:child_process';
 import { homedir } from 'node:os';
@@ -7,7 +7,7 @@ import { homedir } from 'node:os';
  * SSH Credential Manager configuration
  */
 export interface CredentialManagerConfig {
-  /** Directory to store temporary keys (default: /tmp/awcp/keys) */
+  /** Directory to store temporary keys (default: ~/.awcp/keys) */
   keyDir?: string;
   /** SSH server port (default: 22) */
   sshPort?: number;
@@ -35,7 +35,7 @@ export interface GeneratedCredential {
   delegationId: string;
 }
 
-const DEFAULT_KEY_DIR = '/tmp/awcp/keys';
+const DEFAULT_KEY_DIR = join(homedir(), '.awcp', 'keys');
 
 /**
  * Marker prefix for AWCP-managed keys in authorized_keys
@@ -75,7 +75,7 @@ export class CredentialManager {
     endpoint: { host: string; port: number; user: string };
   }> {
     const keyDir = this.config.keyDir ?? DEFAULT_KEY_DIR;
-    await mkdir(keyDir, { recursive: true });
+    await mkdir(keyDir, { recursive: true, mode: 0o700 });
 
     const privateKeyPath = join(keyDir, `${delegationId}`);
     const publicKeyPath = join(keyDir, `${delegationId}.pub`);
@@ -173,12 +173,49 @@ export class CredentialManager {
       
       if (removedCount > 0) {
         await writeFile(authorizedKeysPath, cleanedLines.join('\n'));
-        console.log(`[CredentialManager] Cleaned up ${removedCount} stale AWCP keys`);
+        console.log(`[CredentialManager] Cleaned up ${removedCount} stale AWCP keys from authorized_keys`);
       }
 
       return removedCount;
     } catch {
       // File doesn't exist or can't be read, nothing to clean
+      return 0;
+    }
+  }
+
+  /**
+   * Clean up stale key files from key directory (call on startup)
+   */
+  async cleanupStaleKeyFiles(): Promise<number> {
+    const keyDir = this.config.keyDir ?? DEFAULT_KEY_DIR;
+    
+    try {
+      const files = await readdir(keyDir);
+      let removedCount = 0;
+
+      for (const file of files) {
+        // Skip files that are currently active
+        const delegationId = file.replace(/\.pub$/, '');
+        if (this.activeCredentials.has(delegationId)) {
+          continue;
+        }
+
+        // Remove stale key files
+        try {
+          await unlink(join(keyDir, file));
+          removedCount++;
+        } catch {
+          // Ignore errors
+        }
+      }
+
+      if (removedCount > 0) {
+        console.log(`[CredentialManager] Cleaned up ${removedCount} stale key files`);
+      }
+
+      return removedCount;
+    } catch {
+      // Directory doesn't exist, nothing to clean
       return 0;
     }
   }
