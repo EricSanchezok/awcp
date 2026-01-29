@@ -14,6 +14,10 @@
       "types": "./dist/delegator/index.d.ts",
       "import": "./dist/delegator/index.js"
     },
+    "./delegator/client": {
+      "types": "./dist/delegator/bin/client.d.ts",
+      "import": "./dist/delegator/bin/client.js"
+    },
     "./executor": {
       "types": "./dist/executor/index.d.ts",
       "import": "./dist/executor/index.js"
