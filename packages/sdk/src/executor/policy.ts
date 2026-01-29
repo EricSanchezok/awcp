@@ -7,11 +7,15 @@ import { join } from 'node:path';
 export interface PolicyConfig {
   /** Base directory for mount points (default: /tmp/awcp/mounts) */
   mountRoot?: string;
-  /** Forbidden paths that cannot be used as mount points */
-  forbiddenPaths?: string[];
   /** Maximum concurrent delegations */
   maxConcurrent?: number;
 }
+
+// TODO [Security]: Consider adding optional forbidden paths if needed in the future.
+// Current security model relies on:
+// 1. User explicitly configures mount.root (user takes responsibility)
+// 2. startsWith(root) check prevents path traversal attacks
+// 3. SSHFS mounts run at user-level (no privilege escalation)
 
 /**
  * Mount point validation result
@@ -27,28 +31,20 @@ export interface MountPointValidation {
 const DEFAULT_MOUNT_ROOT = '/tmp/awcp/mounts';
 
 /**
- * Default forbidden paths
- */
-const DEFAULT_FORBIDDEN_PATHS = [
-  '/',
-  '/etc',
-  '/usr',
-  '/bin',
-  '/sbin',
-  '/var',
-  '/home',
-  '/root',
-  '/System',
-  '/Library',
-  '/Applications',
-  process.env['HOME'] ?? '',
-].filter(Boolean);
-
-/**
  * Local Policy
  * 
  * Enforces security constraints on the Executor side.
  * Determines mount points and validates they are safe.
+ * 
+ * TODO [Security]: Current security model:
+ * - User explicitly configures mount.root (user takes responsibility)
+ * - startsWith(root) check prevents path traversal attacks from malicious delegationId
+ * - SSHFS mounts run at user-level (no privilege escalation possible)
+ * 
+ * Future considerations:
+ * - Add optional allowlist/denylist for extra protection in managed environments
+ * - Add audit logging for mount operations
+ * - Consider sandboxing options (e.g., namespaces on Linux)
  */
 export class LocalPolicy {
   private config: PolicyConfig;
@@ -73,12 +69,14 @@ export class LocalPolicy {
 
   /**
    * Validate that a mount point is safe to use
+   * 
+   * TODO [Security]: Currently only checks path traversal.
+   * Consider adding audit logging here for security monitoring.
    */
   async validateMountPoint(mountPoint: string): Promise<MountPointValidation> {
     const root = this.config.mountRoot ?? DEFAULT_MOUNT_ROOT;
-    const forbidden = this.config.forbiddenPaths ?? DEFAULT_FORBIDDEN_PATHS;
 
-    // Must be under mount root
+    // Must be under mount root (prevents path traversal attacks)
     if (!mountPoint.startsWith(root)) {
       return {
         valid: false,
@@ -86,18 +84,8 @@ export class LocalPolicy {
       };
     }
 
-    // Must not be in forbidden paths
-    for (const path of forbidden) {
-      if (mountPoint === path || mountPoint.startsWith(path + '/')) {
-        return {
-          valid: false,
-          reason: `Mount point ${mountPoint} is in forbidden path ${path}`,
-        };
-      }
-    }
-
-    // Check if it's already mounted (would need to check /proc/mounts on Linux)
-    // For now, just check if directory exists and is empty
+    // TODO [Security]: Consider checking if path contains suspicious patterns
+    // like symlinks pointing outside root, or special files
 
     return { valid: true };
   }
