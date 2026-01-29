@@ -25,7 +25,7 @@
  * ```
  */
 
-import type { Delegation, TaskSpec, AccessMode } from '@awcp/core';
+import type { Delegation, TaskSpec, AccessMode, AuthCredential } from '@awcp/core';
 
 /**
  * Parameters for creating a delegation
@@ -41,6 +41,11 @@ export interface DelegateRequest {
   ttlSeconds?: number;
   /** Access mode (uses default if not specified) */
   accessMode?: AccessMode;
+  /** 
+   * Optional authentication for paid/restricted Executor services.
+   * This will be included in the INVITE message.
+   */
+  auth?: AuthCredential;
 }
 
 /**

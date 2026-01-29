@@ -17,6 +17,7 @@ import {
   type ErrorMessage,
   type AwcpMessage,
   type AccessMode,
+  type AuthCredential,
   DelegationStateMachine,
   createDelegation,
   applyMessageToDelegation,
@@ -44,6 +45,11 @@ export interface DelegateParams {
   ttlSeconds?: number;
   /** Access mode (uses default if not specified) */
   accessMode?: AccessMode;
+  /** 
+   * Optional authentication for paid/restricted Executor services.
+   * This will be included in the INVITE message.
+   */
+  auth?: AuthCredential;
 }
 
 /**
@@ -176,6 +182,8 @@ export class DelegatorService {
       requirements: {
         transport: 'sshfs',
       },
+      // Include auth if provided (for paid/restricted Executor services)
+      ...(params.auth && { auth: params.auth }),
     };
 
     // Transition state

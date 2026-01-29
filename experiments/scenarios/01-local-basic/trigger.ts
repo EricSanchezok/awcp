@@ -8,6 +8,7 @@ import { resolve } from 'node:path';
 const DELEGATOR_URL = process.env.DELEGATOR_URL || 'http://localhost:3100';
 const EXECUTOR_URL = process.env.EXECUTOR_URL || 'http://localhost:4001/awcp';
 const SCENARIO_DIR = process.env.SCENARIO_DIR || process.cwd();
+const API_KEY = process.env.AWCP_API_KEY;
 
 async function main() {
   console.log('');
@@ -18,7 +19,6 @@ async function main() {
 
   const client = new DelegatorDaemonClient(DELEGATOR_URL);
 
-  // Check health
   const healthy = await client.health();
   if (!healthy) {
     console.error('❌ Delegator Daemon is not running at', DELEGATOR_URL);
@@ -26,7 +26,6 @@ async function main() {
   }
   console.log('✓ Delegator Daemon is healthy');
 
-  // Create delegation
   const workspacePath = resolve(SCENARIO_DIR, 'workspace');
   const timestamp = new Date().toISOString();
 
@@ -34,6 +33,9 @@ async function main() {
   console.log('Creating delegation...');
   console.log(`  Executor URL: ${EXECUTOR_URL}`);
   console.log(`  Workspace:    ${workspacePath}`);
+  if (API_KEY) {
+    console.log(`  API Key:      ${API_KEY.slice(0, 10)}...`);
+  }
   console.log('');
 
   try {
@@ -44,13 +46,18 @@ async function main() {
         description: 'Modify hello.txt',
         prompt: `append hello.txt Modified by AWCP at ${timestamp}`,
       },
+      ...(API_KEY && {
+        auth: {
+          type: 'api_key' as const,
+          credential: API_KEY,
+        },
+      }),
     });
 
     console.log(`✓ Delegation created: ${result.delegationId}`);
     console.log('');
     console.log('Waiting for completion...');
 
-    // Wait for completion
     const delegation = await client.waitForCompletion(result.delegationId, 1000, 30000);
 
     console.log('');

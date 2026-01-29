@@ -167,3 +167,22 @@ export class LeaseExpiredError extends AwcpError {
     this.name = 'LeaseExpiredError';
   }
 }
+
+/**
+ * Error: Authentication failed
+ */
+export class AuthFailedError extends AwcpError {
+  constructor(
+    reason: string = 'Authentication failed',
+    hint?: string,
+    delegationId?: string,
+  ) {
+    super(
+      ErrorCodes.AUTH_FAILED,
+      reason,
+      hint ?? 'Check your API key or credentials',
+      delegationId,
+    );
+    this.name = 'AuthFailedError';
+  }
+}

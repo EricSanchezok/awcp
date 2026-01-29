@@ -42,6 +42,11 @@ coverage/
 .awcp/
 /var/awcp/
 
+# Experiments runtime directories
+experiments/**/logs/
+experiments/**/mounts/
+experiments/**/exports/
+
 # SSH keys (never commit)
 *.pem
 *.key

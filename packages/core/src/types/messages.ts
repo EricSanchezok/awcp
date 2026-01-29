@@ -14,6 +14,20 @@ export type MessageType = 'INVITE' | 'ACCEPT' | 'START' | 'DONE' | 'ERROR';
 export type AccessMode = 'ro' | 'rw';
 
 /**
+ * Authentication types for AWCP protocol-level auth
+ */
+export type AuthType = 'api_key' | 'bearer' | 'oauth2' | 'custom';
+
+/**
+ * Authentication credential in INVITE message
+ */
+export interface AuthCredential {
+  type: AuthType;
+  credential: string;
+  metadata?: Record<string, string>;
+}
+
+/**
  * Transport types for data plane
  */
 export type TransportType = 'sshfs';
@@ -154,6 +168,11 @@ export interface InviteMessage extends BaseMessage {
   lease: LeaseConfig;
   workspace: WorkspaceSpec;
   requirements?: Requirements;
+  /** 
+   * Optional authentication for paid/restricted Executor services.
+   * Executor can validate this in onInvite hook before accepting.
+   */
+  auth?: AuthCredential;
 }
 
 /**
