@@ -1,4 +1,4 @@
-import { mkdir, readdir } from 'node:fs/promises';
+import { mkdir, readdir, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 
 /**
@@ -78,10 +78,41 @@ export class LocalPolicy {
   }
 
   /**
-   * Release a mount point
+   * Release a mount point and remove the directory
    */
-  releaseMountPoint(mountPoint: string): void {
+  async releaseMountPoint(mountPoint: string): Promise<void> {
     this.allocatedMounts.delete(mountPoint);
+    try {
+      await rm(mountPoint, { recursive: true, force: true });
+    } catch {
+      // Ignore errors - directory may already be gone
+    }
+  }
+
+  /**
+   * Cleanup stale mount directories from previous runs
+   */
+  async cleanupStaleMounts(): Promise<number> {
+    const root = this.config.mountRoot ?? DEFAULT_MOUNT_ROOT;
+    let cleaned = 0;
+
+    try {
+      const entries = await readdir(root, { withFileTypes: true });
+      for (const entry of entries) {
+        if (entry.isDirectory()) {
+          const mountPath = join(root, entry.name);
+          // Only clean directories not currently allocated
+          if (!this.allocatedMounts.has(mountPath)) {
+            await rm(mountPath, { recursive: true, force: true });
+            cleaned++;
+          }
+        }
+      }
+    } catch {
+      // Root directory may not exist yet
+    }
+
+    return cleaned;
   }
 
   /**

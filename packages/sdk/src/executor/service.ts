@@ -210,7 +210,7 @@ export class ExecutorService {
     // Validate mount point
     const validation = await this.policy.validateMountPoint(mountPoint);
     if (!validation.valid) {
-      this.policy.releaseMountPoint(mountPoint);
+      await this.policy.releaseMountPoint(mountPoint);
       return this.createErrorMessage(
         delegationId,
         ErrorCodes.MOUNTPOINT_DENIED,
@@ -307,12 +307,12 @@ export class ExecutorService {
 
       // Cleanup
       this.activeDelegations.delete(delegationId);
-      this.policy.releaseMountPoint(mountPoint);
+      await this.policy.releaseMountPoint(mountPoint);
     } catch (error) {
       // Cleanup on error
       await this.sshfsClient.unmount(mountPoint).catch(() => {});
       this.activeDelegations.delete(delegationId);
-      this.policy.releaseMountPoint(mountPoint);
+      await this.policy.releaseMountPoint(mountPoint);
 
       // Send ERROR
       const errorMessage: ErrorMessage = {
@@ -345,7 +345,7 @@ export class ExecutorService {
     if (delegation) {
       await this.sshfsClient.unmount(delegation.mountPoint).catch(() => {});
       this.activeDelegations.delete(delegationId);
-      this.policy.releaseMountPoint(delegation.mountPoint);
+      await this.policy.releaseMountPoint(delegation.mountPoint);
     }
 
     // Remove pending invitation if any

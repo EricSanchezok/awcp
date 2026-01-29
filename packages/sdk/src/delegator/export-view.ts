@@ -1,4 +1,4 @@
-import { mkdir, rm, symlink } from 'node:fs/promises';
+import { mkdir, rm, symlink, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 
 /**
@@ -33,7 +33,7 @@ export class ExportViewManager {
   /**
    * Create an export view for a delegation
    * 
-   * @returns The path to the export view
+   * @returns The path to the export view (with trailing slash for SSHFS symlink compatibility)
    */
   async create(delegationId: string, localDir: string): Promise<string> {
     const baseDir = this.config.baseDir ?? DEFAULT_EXPORT_BASE;
@@ -47,29 +47,27 @@ export class ExportViewManager {
     
     switch (strategy) {
       case 'symlink':
-        // Simple symlink (not recommended for production)
         await symlink(localDir, exportPath);
         break;
       
       case 'bind':
         // Bind mount - requires root/sudo
-        // Would use: mount --bind <localDir> <exportPath>
-        // For now, fall back to symlink
         console.warn('Bind mount not implemented, falling back to symlink');
         await symlink(localDir, exportPath);
         break;
       
       case 'worktree':
         // Git worktree - requires git repo
-        // Would use: git worktree add <exportPath>
-        // For now, fall back to symlink
         console.warn('Git worktree not implemented, falling back to symlink');
         await symlink(localDir, exportPath);
         break;
     }
 
     this.exports.set(delegationId, exportPath);
-    return exportPath;
+    
+    // Return path with trailing slash for SSHFS symlink compatibility
+    // See: https://github.com/libfuse/sshfs/issues/312
+    return exportPath + '/';
   }
 
   /**
@@ -85,9 +83,7 @@ export class ExportViewManager {
       const baseDir = this.config.baseDir ?? DEFAULT_EXPORT_BASE;
       const delegationDir = join(baseDir, delegationId);
       
-      // Remove the entire delegation directory
       await rm(delegationDir, { recursive: true, force: true });
-      
       this.exports.delete(delegationId);
     } catch (error) {
       console.error(`Failed to cleanup export view for ${delegationId}:`, error);
@@ -108,5 +104,31 @@ export class ExportViewManager {
     for (const delegationId of this.exports.keys()) {
       await this.cleanup(delegationId);
     }
+  }
+
+  /**
+   * Cleanup stale export directories from previous runs
+   */
+  async cleanupStaleExports(): Promise<number> {
+    const baseDir = this.config.baseDir ?? DEFAULT_EXPORT_BASE;
+    let cleaned = 0;
+
+    try {
+      const entries = await readdir(baseDir, { withFileTypes: true });
+      for (const entry of entries) {
+        if (entry.isDirectory()) {
+          const delegationId = entry.name;
+          // Only clean directories not currently tracked
+          if (!this.exports.has(delegationId)) {
+            await rm(join(baseDir, delegationId), { recursive: true, force: true });
+            cleaned++;
+          }
+        }
+      }
+    } catch {
+      // Base directory may not exist yet
+    }
+
+    return cleaned;
   }
 }

@@ -1,5 +1,5 @@
 import { spawn, type ChildProcess } from 'node:child_process';
-import { writeFile, unlink, mkdir, access } from 'node:fs/promises';
+import { writeFile, unlink, mkdir, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { MountFailedError, DependencyMissingError } from '@awcp/core';
 
@@ -134,6 +134,7 @@ export class SshfsMountClient {
         '-o', 'reconnect',
         '-o', 'ServerAliveInterval=15',
         '-o', 'ServerAliveCountMax=3',
+        '-o', 'noappledouble',  // Prevent macOS ._* metadata files
       ];
 
       // Add custom options
@@ -141,7 +142,9 @@ export class SshfsMountClient {
         args.push('-o', `${key}=${value}`);
       }
 
-      // Execute mount
+      console.log(`[SSHFS] Mounting: sshfs ${args.join(' ')}`);
+
+      // Execute mount (SSHFS will daemonize and exit immediately on success)
       await this.execMount(args, params.mountPoint);
 
       // Track active mount
@@ -197,8 +200,8 @@ export class SshfsMountClient {
    */
   async isMounted(mountPoint: string): Promise<boolean> {
     try {
-      // Check if the mount point has the FUSE filesystem
-      await access(join(mountPoint, '.'));
+      // Check if the mount point exists and is tracked
+      await stat(mountPoint);
       return this.activeMounts.has(mountPoint);
     } catch {
       return false;
@@ -214,10 +217,11 @@ export class SshfsMountClient {
     }
   }
 
-  private execMount(args: string[], _mountPoint: string): Promise<void> {
+  private execMount(args: string[], mountPoint: string): Promise<void> {
     const timeout = this.config.mountTimeout ?? DEFAULT_MOUNT_TIMEOUT;
 
     return new Promise((resolve, reject) => {
+      // SSHFS without -f will daemonize and exit immediately with code 0 on success
       const proc = spawn('sshfs', args, {
         stdio: ['ignore', 'pipe', 'pipe'],
       });
@@ -227,17 +231,39 @@ export class SshfsMountClient {
         stderr += data.toString();
       });
 
-      const timer = setTimeout(() => {
+      const timer = setTimeout(async () => {
         proc.kill();
+        // Clean up possible zombie mount
+        try {
+          await this.unmount(mountPoint);
+        } catch {
+          // Ignore - mount may not exist
+        }
         reject(new MountFailedError(`Mount timeout after ${timeout}ms`));
       }, timeout);
 
-      proc.on('close', (code) => {
+      proc.on('close', async (code) => {
         clearTimeout(timer);
-        if (code === 0) {
-          resolve();
-        } else {
+        
+        if (code !== 0) {
           reject(new MountFailedError(stderr || `sshfs exited with code ${code}`));
+          return;
+        }
+
+        // SSHFS daemonized successfully (exit code 0)
+        // Now verify the mount is actually there
+        try {
+          const mountStat = await stat(mountPoint);
+          const parentStat = await stat(join(mountPoint, '..'));
+          
+          if (mountStat.dev !== parentStat.dev) {
+            // Different device = mounted successfully
+            resolve();
+          } else {
+            reject(new MountFailedError('SSHFS exited but mount not detected'));
+          }
+        } catch (error) {
+          reject(new MountFailedError(`Mount verification failed: ${error}`));
         }
       });
 

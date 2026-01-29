@@ -24,6 +24,7 @@ dist/
 
 # OS
 .DS_Store
+._*
 Thumbs.db
 
 # Logs

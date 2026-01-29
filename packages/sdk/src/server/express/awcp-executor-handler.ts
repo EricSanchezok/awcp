@@ -77,13 +77,23 @@ export function executorHandler(options: ExecutorHandlerOptions): Router {
         return;
       }
 
+      // For START messages, respond immediately and handle async
+      if (message.type === 'START') {
+        res.json({ ok: true });
+        // Handle START asynchronously (mount + execute task)
+        service.handleMessage(message, delegatorUrl ?? '').catch((error) => {
+          console.error('[AWCP Executor] Error handling START:', error);
+        });
+        return;
+      }
+
+      // Other messages (INVITE, ERROR) are handled synchronously
       const response = await service.handleMessage(message, delegatorUrl ?? '');
 
       if (response) {
         // INVITE returns ACCEPT/ERROR synchronously
         res.json(response);
       } else {
-        // START is handled async, just acknowledge
         res.json({ ok: true });
       }
     } catch (error) {
