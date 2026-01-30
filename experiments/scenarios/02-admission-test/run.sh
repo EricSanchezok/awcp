@@ -18,7 +18,7 @@ echo -e "\033[0;32m✓ Build complete\033[0m"
 
 # Setup directories
 cd "$SCRIPT_DIR"
-mkdir -p logs mounts exports workspace
+mkdir -p logs workdir exports workspace
 
 # Cleanup function
 cleanup() {

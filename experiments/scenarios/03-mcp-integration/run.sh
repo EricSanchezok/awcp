@@ -60,7 +60,7 @@ echo ""
 cd "$SCRIPT_DIR"
 
 # Create required directories
-mkdir -p logs mounts exports
+mkdir -p logs workdir exports
 
 # Reset workspace
 echo -e "${YELLOW}Resetting workspace...${NC}"
@@ -86,7 +86,7 @@ cleanup() {
     # Wait for processes to terminate
     sleep 0.5
     
-    # Cleanup mounts
+    # Cleanup workdir
     ./cleanup.sh 2>/dev/null || true
     
     echo -e "${GREEN}✓ Cleanup complete${NC}"

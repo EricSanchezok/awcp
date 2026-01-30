@@ -14,16 +14,20 @@ export class ArchiveExtractor {
    * Extract a ZIP archive to a directory
    */
   async extract(archivePath: string, targetDir: string): Promise<void> {
-    await fs.promises.mkdir(targetDir, { recursive: true });
+    // Normalize targetDir to ensure consistent path comparison
+    const normalizedTargetDir = path.resolve(targetDir);
+    await fs.promises.mkdir(normalizedTargetDir, { recursive: true });
 
     const zip = await yauzl.open(archivePath);
 
     try {
       for await (const entry of zip) {
-        const entryPath = path.join(targetDir, entry.filename);
+        // Resolve the full path and normalize it
+        const entryPath = path.resolve(normalizedTargetDir, entry.filename);
 
         // Security: prevent path traversal
-        if (!entryPath.startsWith(targetDir + path.sep) && entryPath !== targetDir) {
+        // The entry path must be inside the target directory
+        if (!entryPath.startsWith(normalizedTargetDir + path.sep) && entryPath !== normalizedTargetDir) {
           throw new Error(`Invalid entry path: ${entry.filename}`);
         }
 

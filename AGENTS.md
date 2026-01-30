@@ -1,215 +1,96 @@
 # AWCP Development Guidelines
 
-Guidelines for AI agents and developers working on the AWCP codebase.
-
 ## Project Structure
 
 ```
 packages/
-├── core/              # @awcp/core - Protocol types, state machine, errors
-│   └── test/          # Unit tests (vitest)
-├── sdk/               # @awcp/sdk - Delegator and Executor implementations
-│   └── test/          # Unit tests (vitest)
-├── transport-sshfs/   # @awcp/transport-sshfs - SSHFS transport adapter
-│   └── test/          # Unit tests (vitest)
-└── transport-archive/ # @awcp/transport-archive - HTTP archive transport
-    └── test/          # Unit tests (vitest)
+├── core/              # Protocol types, state machine, errors
+├── sdk/               # Delegator and Executor implementations
+├── transport-sshfs/   # SSHFS transport (SSH key + mount)
+└── transport-archive/ # Archive transport (HTTP + ZIP)
 
 experiments/
-├── shared/
-│   └── executor-agent/   # Shared A2A executor agent
-└── scenarios/
-    ├── 01-local-basic/      # Basic delegation test
-    ├── 02-admission-test/   # Admission control test
-    └── 03-mcp-integration/  # MCP tools integration test
+├── shared/executor-agent/  # Shared test executor
+└── scenarios/              # Integration tests (01-04)
 ```
 
-## Development Commands
+## Commands
 
 ```bash
-npm install           # Install dependencies
-npm run build         # Build all packages
-npm test              # Run all tests (unit + integration)
-npm run typecheck     # Type check
+npm install && npm run build && npm test   # Full build + test
+npm run typecheck                          # Type check only
 
-# Run specific package tests
-npm test -w @awcp/core
-npm test -w @awcp/sdk
-
-# Run integration test scenarios
+# Integration scenarios
 cd experiments/scenarios/01-local-basic && ./run.sh
-cd experiments/scenarios/02-admission-test && ./run.sh
 ```
 
 ## Package Dependencies
 
 ```
-@awcp/core              (no internal deps)
-    ↑
-@awcp/transport-sshfs   (depends on core)
-@awcp/transport-archive (depends on core)
-
-@awcp/sdk               (depends on core, uses transport via injection)
+@awcp/core  ←  @awcp/transport-{sshfs,archive}
+                        ↓
+              @awcp/sdk (transport injected)
 ```
-
-## Key Components
-
-### Delegator Side (packages/sdk/src/delegator/)
-
-| File | Purpose |
-|------|---------|
-| `service.ts` | Main service - manages delegation lifecycle |
-| `admission.ts` | Workspace size/file count validation |
-| `config.ts` | Configuration with defaults |
-| `export-manager.ts` | Creates export directories for delegation |
-| `executor-client.ts` | HTTP client to send messages to Executor |
-| `bin/daemon.ts` | Standalone HTTP daemon |
-| `bin/client.ts` | Client SDK for daemon API |
-
-### Executor Side (packages/sdk/src/executor/)
-
-| File | Purpose |
-|------|---------|
-| `service.ts` | Main service - handles INVITE/START messages |
-| `workspace-manager.ts` | Workspace allocation and cleanup |
-| `config.ts` | Configuration with defaults |
-| `delegator-client.ts` | HTTP client to send DONE/ERROR back |
-
-### Transport: SSHFS (packages/transport-sshfs/)
-
-| File | Purpose |
-|------|---------|
-| `sshfs-transport.ts` | TransportAdapter implementation |
-| `delegator/credential-manager.ts` | SSH key generation/revocation |
-| `executor/sshfs-client.ts` | SSHFS mount/unmount operations |
-
-### Transport: Archive (packages/transport-archive/)
-
-| File | Purpose |
-|------|---------|
-| `archive-transport.ts` | TransportAdapter implementation |
-| `delegator/archive-creator.ts` | Creates ZIP from export directory |
-| `delegator/archive-server.ts` | HTTP server for download/upload |
-| `executor/archive-client.ts` | HTTP client for transfers |
-| `executor/archive-extractor.ts` | Extracts ZIP to work directory |
 
 ## Protocol Flow
 
 ```
 Delegator                              Executor
-    │                                      │
-    │ ─── INVITE (sync) ─────────────────► │  handleInvite()
-    │ ◄── ACCEPT ──────────────────────────│
-    │                                      │
-    │ ─── START (async, returns {ok:true})►│  handleStart()
-    │                                      │    └─► mount → execute → unmount
-    │ ◄── DONE/ERROR (callback) ──────────│
+    │ ─── INVITE (sync) ─────────────► │
+    │ ◄── ACCEPT ──────────────────────│
+    │ ─── START (async) ──────────────►│  → setup → execute → teardown
+    │ ◄── DONE/ERROR (callback) ───────│
 ```
 
-**Key Points:**
-- INVITE/ACCEPT are synchronous HTTP request/response
-- START returns immediately with `{ok:true}`, task runs async
-- DONE/ERROR sent to Delegator's callback URL (X-AWCP-Callback-URL header)
-- Cleanup (unmount, revoke keys) happens before sending DONE
+- INVITE/ACCEPT: synchronous request/response
+- START: returns `{ok:true}` immediately, task runs async
+- DONE/ERROR: sent to `X-AWCP-Callback-URL` header
 
 ## State Machine
 
-Valid states: `created → invited → accepted → started → running → completed`
+`created → invited → accepted → started → running → completed`
 
-Terminal states: `completed`, `error`, `cancelled`, `expired`
-
-All transitions must go through `DelegationStateMachine` from `@awcp/core`.
+Terminal: `completed`, `error`, `cancelled`, `expired`
 
 ## Error Handling
 
-All errors extend `AwcpError` from `@awcp/core`:
+All errors extend `AwcpError` with `code` and `hint` fields:
 
 ```typescript
-// Throwing
 throw new WorkspaceTooLargeError(stats, hint, delegationId);
-
-// HTTP response includes hint
-res.status(400).json({
-  error: error.message,
-  code: error.code,
-  hint: error.hint,
-});
+// Available: DeclinedError, DependencyMissingError, WorkspaceTooLargeError,
+//   MountPointDeniedError, MountFailedError, TaskFailedError, LeaseExpiredError, AuthFailedError
 ```
-
-Available errors: `DeclinedError`, `DependencyMissingError`, `WorkspaceTooLargeError`, 
-`MountPointDeniedError`, `MountFailedError`, `TaskFailedError`, `LeaseExpiredError`, `AuthFailedError`
 
 ## Admission Control
 
-Delegator validates workspace before sending INVITE:
-
 ```typescript
-// In delegator config
-admission: {
-  maxTotalBytes: 100 * 1024 * 1024,  // 100MB
-  maxFileCount: 10000,
-  maxSingleFileBytes: 50 * 1024 * 1024,  // 50MB
-}
+admission: { maxTotalBytes: 100MB, maxFileCount: 10000, maxSingleFileBytes: 50MB }
 ```
 
-Implementation skips `node_modules/` and `.git/` directories.
+Skips `node_modules/` and `.git/`.
 
-## SSH Key Management
+## Scenario Directories
 
-- Keys stored in `~/.awcp/keys/` (not `/tmp`)
-- Public key added to `~/.ssh/authorized_keys` with marker `awcp-temp-key-{delegationId}`
-- Keys revoked immediately after DONE/ERROR
-- `cleanupStaleKeys()` removes orphaned keys on startup
-
-## SSHFS Notes
-
-- Uses `noappledouble` option to prevent macOS `._*` files
-- Mount detection via device number comparison (not process monitoring)
-- Timeout cleanup includes zombie mount removal
-
-## Testing
-
-### Unit Tests (Vitest)
-
-```bash
-npm test  # Runs all package tests
-```
-
-Test locations:
-- `packages/core/test/` - State machine, message types
-- `packages/sdk/test/` - Admission, config, services
-- `packages/transport-sshfs/test/` - Credential manager, SSHFS client
-- `packages/transport-archive/test/` - Archive creator, server, transport
-
-### Integration Tests
-
-```bash
-cd experiments/scenarios/01-local-basic && ./run.sh   # Full flow
-cd experiments/scenarios/02-admission-test && ./run.sh # Admission rejection
-cd experiments/scenarios/03-mcp-integration && ./run.sh # MCP tools
-```
+| Directory | Purpose |
+|-----------|---------|
+| `workspace/` | Source project (input) |
+| `exports/` | Export copies for delegation |
+| `workdir/` | Executor working dir (mount or extract target) |
+| `temp/` | ZIP archives (Archive transport) |
+| `logs/` | Runtime logs |
 
 ## Code Style
 
-- TypeScript strict mode
-- Explicit types for public APIs
-- `interface` for extensible shapes, `type` for aliases
-- async/await (no callbacks)
-- Errors extend `AwcpError`
-
-## Naming Conventions
-
-- Messages: `InviteMessage`, `AcceptMessage`, `StartMessage`, `DoneMessage`, `ErrorMessage`
-- Error codes: `SCREAMING_SNAKE_CASE` (e.g., `WORKSPACE_TOO_LARGE`)
-- States: `lowercase` (e.g., `created`, `invited`, `running`)
-- Config: `*Config` suffix
-- Hooks: `on*` prefix (e.g., `onInvite`, `onTaskComplete`)
+- TypeScript strict, async/await, errors extend `AwcpError`
+- Messages: `{Invite,Accept,Start,Done,Error}Message`
+- Error codes: `SCREAMING_SNAKE_CASE`, States: `lowercase`
+- Config types: `*Config` suffix, Hooks: `on*` prefix
 
 ## Adding New Transport
 
 1. Create `packages/transport-{name}/`
-2. Implement `TransportAdapter` interface from `@awcp/core`
-3. Delegator side: `prepare()` and `cleanup()` methods
-4. Executor side: `checkDependency()`, `setup()`, and `teardown()` methods
-5. Add tests in `test/`
-6. Add integration scenario in `experiments/scenarios/`
+2. Implement `TransportAdapter` from `@awcp/core`
+3. Delegator: `prepare()`, `cleanup()`
+4. Executor: `checkDependency()`, `setup()`, `teardown()`
+5. Add tests + integration scenario
