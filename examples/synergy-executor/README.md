@@ -53,7 +53,7 @@ SCENARIO_DIR=$(pwd) npx tsx src/agent.ts
 
 | Endpoint | URL | Description |
 |----------|-----|-------------|
-| Agent Card | `http://localhost:4001/.well-known/agent.json` | A2A discovery |
+| Agent Card | `http://localhost:4001/.well-known/agent-card.json` | A2A discovery |
 | A2A | `http://localhost:4001/a2a` | JSON-RPC endpoint |
 | AWCP | `http://localhost:4001/awcp` | Workspace delegation |
 | Health | `http://localhost:4001/health` | Health check |
