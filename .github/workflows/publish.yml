@@ -1,29 +1,31 @@
 name: Publish
+run-name: "${{ inputs.bump && format('release {0}', inputs.bump) || 'preview' }}"
 
 on:
-  # Auto-publish on push to main (default: patch)
+  # Auto-publish preview on push to dev
   push:
     branches:
-      - main
+      - dev
     paths:
       - "packages/**"
       - "!packages/**/test/**"
       - "!**/*.md"
 
-  # Manual trigger with version choice
+  # Manual trigger for releases
   workflow_dispatch:
     inputs:
       bump:
-        description: "Version bump type"
-        required: true
+        description: "Version bump type (leave empty for preview)"
+        required: false
         type: choice
         options:
+          - ""
           - patch
           - minor
           - major
 
 concurrency:
-  group: publish
+  group: publish-${{ github.ref }}-${{ inputs.bump }}
   cancel-in-progress: false
 
 permissions:
@@ -38,6 +40,8 @@ jobs:
         with:
           fetch-depth: 0
 
+      - run: git fetch --force --tags
+
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
@@ -51,13 +55,11 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Bump version
+      - name: Determine version
         id: version
-        run: |
-          BUMP_TYPE="${{ inputs.bump }}"
-          npx tsx scripts/version.ts ${BUMP_TYPE:-patch}
-          VERSION=$(node -p "require('./packages/core/package.json').version")
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
+        run: npx tsx scripts/version.ts ${{ inputs.bump }}
+        env:
+          AWCP_BUMP: ${{ inputs.bump }}
 
       - name: Build
         run: npm run build
@@ -67,21 +69,30 @@ jobs:
 
       - name: Publish to npm
         run: |
-          cd packages/core && npm publish --access public
-          cd ../transport-sshfs && npm publish --access public
-          cd ../sdk && npm publish --access public
-          cd ../mcp && npm publish --access public
+          # Use --tag based on preview status
+          if [ "${{ steps.version.outputs.preview }}" = "true" ]; then
+            TAG="dev"
+          else
+            TAG="latest"
+          fi
+          
+          cd packages/core && npm publish --access public --tag $TAG
+          cd ../transport-sshfs && npm publish --access public --tag $TAG
+          cd ../sdk && npm publish --access public --tag $TAG
+          cd ../mcp && npm publish --access public --tag $TAG
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
-      - name: Commit and tag
+      - name: Commit and tag (releases only)
+        if: steps.version.outputs.preview != 'true'
         run: |
           git add -A
-          git commit -m "release: v${{ steps.version.outputs.version }}"
+          git commit -m "release: v${{ steps.version.outputs.version }}" || true
           git tag "v${{ steps.version.outputs.version }}"
           git push origin HEAD --tags
 
-      - name: Create GitHub Release
+      - name: Create GitHub Release (releases only)
+        if: steps.version.outputs.preview != 'true'
         uses: softprops/action-gh-release@v1
         with:
           tag_name: v${{ steps.version.outputs.version }}
@@ -90,3 +101,17 @@ jobs:
           draft: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Summary
+        run: |
+          echo "## Published" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Version:** \`${{ steps.version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Channel:** \`${{ steps.version.outputs.channel }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Preview:** \`${{ steps.version.outputs.preview }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ steps.version.outputs.preview }}" = "true" ]; then
+            echo "Install with: \`npm install @awcp/sdk@dev\`" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "Install with: \`npm install @awcp/sdk\`" >> $GITHUB_STEP_SUMMARY
+          fi
