@@ -8,7 +8,6 @@ export {
 export {
   type DelegatorConfig,
   type ExportConfig,
-  type SshConfig,
   type AdmissionConfig as DelegatorAdmissionConfig,
   type DelegationDefaults,
   type DelegatorHooks,

@@ -1,35 +1,17 @@
 /**
  * AWCP Delegator Configuration
- *
- * Configuration for enabling AWCP Delegator functionality.
  */
 
-import type { Delegation, AccessMode } from '@awcp/core';
+import type { Delegation, AccessMode, DelegatorTransportAdapter } from '@awcp/core';
 
 /**
  * Export view configuration
  */
 export interface ExportConfig {
-  /** Base directory for export views, e.g., '/tmp/awcp/exports' */
+  /** Base directory for export views */
   baseDir: string;
   /** Strategy for creating export view (default: 'symlink') */
   strategy?: 'symlink' | 'bind' | 'worktree';
-}
-
-/**
- * SSH configuration for credential generation
- */
-export interface SshConfig {
-  /** SSH server host that Executor will connect to */
-  host: string;
-  /** SSH server port (default: 22) */
-  port?: number;
-  /** SSH user for Executor connections */
-  user: string;
-  /** Directory to store temporary keys (default: '/tmp/awcp/keys') */
-  keyDir?: string;
-  /** Path to CA private key for signing SSH certificates */
-  caKeyPath: string;
 }
 
 /**
@@ -58,63 +40,25 @@ export interface DelegationDefaults {
  * Lifecycle hooks for Delegator events
  */
 export interface DelegatorHooks {
-  /** Called when delegation is created and INVITE sent */
   onDelegationCreated?: (delegation: Delegation) => void;
-  /** Called when Executor accepts and task starts */
   onDelegationStarted?: (delegation: Delegation) => void;
-  /** Called when task completes successfully */
   onDelegationCompleted?: (delegation: Delegation) => void;
-  /** Called on error or rejection */
   onError?: (delegationId: string, error: Error) => void;
 }
 
 /**
  * AWCP Delegator Configuration
- *
- * @example
- * ```typescript
- * const delegatorConfig: DelegatorConfig = {
- *   export: {
- *     baseDir: '/tmp/awcp/exports',
- *   },
- *   ssh: {
- *     host: 'my-host.example.com',
- *     port: 22,
- *     user: 'awcp',
- *   },
- * };
- * ```
  */
 export interface DelegatorConfig {
-  /**
-   * Export view configuration (required)
-   *
-   * Specifies how workspaces are exported for Executor access.
-   */
+  /** Export view configuration */
   export: ExportConfig;
-
-  /**
-   * SSH configuration (required)
-   *
-   * Specifies SSH server details for SSHFS connections.
-   */
-  ssh: SshConfig;
-
-  /**
-   * Admission control (optional)
-   *
-   * Limits for workspace size to prevent network issues.
-   */
+  /** Transport adapter for data plane */
+  transport: DelegatorTransportAdapter;
+  /** Admission control */
   admission?: AdmissionConfig;
-
-  /**
-   * Default values for delegations (optional)
-   */
+  /** Default values for delegations */
   defaults?: DelegationDefaults;
-
-  /**
-   * Lifecycle hooks (optional)
-   */
+  /** Lifecycle hooks */
   hooks?: DelegatorHooks;
 }
 
@@ -122,10 +66,6 @@ export interface DelegatorConfig {
  * Default configuration values
  */
 export const DEFAULT_DELEGATOR_CONFIG = {
-  ssh: {
-    port: 22,
-    keyDir: '/tmp/awcp/keys',
-  },
   export: {
     strategy: 'symlink' as const,
   },
@@ -139,17 +79,6 @@ export const DEFAULT_DELEGATOR_CONFIG = {
     accessMode: 'rw' as AccessMode,
   },
 } as const;
-
-/**
- * Resolved SSH config with all fields
- */
-export interface ResolvedSshConfig {
-  host: string;
-  port: number;
-  user: string;
-  keyDir: string;
-  caKeyPath: string;
-}
 
 /**
  * Resolved admission config with all fields
@@ -173,7 +102,7 @@ export interface ResolvedDelegationDefaults {
  */
 export interface ResolvedDelegatorConfig {
   export: ExportConfig & { strategy: 'symlink' | 'bind' | 'worktree' };
-  ssh: ResolvedSshConfig;
+  transport: DelegatorTransportAdapter;
   admission: ResolvedAdmissionConfig;
   defaults: ResolvedDelegationDefaults;
   hooks: DelegatorHooks;
@@ -188,13 +117,7 @@ export function resolveDelegatorConfig(config: DelegatorConfig): ResolvedDelegat
       baseDir: config.export.baseDir,
       strategy: config.export.strategy ?? DEFAULT_DELEGATOR_CONFIG.export.strategy,
     },
-    ssh: {
-      host: config.ssh.host,
-      port: config.ssh.port ?? DEFAULT_DELEGATOR_CONFIG.ssh.port,
-      user: config.ssh.user,
-      keyDir: config.ssh.keyDir ?? DEFAULT_DELEGATOR_CONFIG.ssh.keyDir,
-      caKeyPath: config.ssh.caKeyPath,
-    },
+    transport: config.transport,
     admission: {
       maxTotalBytes: config.admission?.maxTotalBytes ?? DEFAULT_DELEGATOR_CONFIG.admission.maxTotalBytes,
       maxFileCount: config.admission?.maxFileCount ?? DEFAULT_DELEGATOR_CONFIG.admission.maxFileCount,

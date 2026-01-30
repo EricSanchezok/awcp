@@ -3,6 +3,7 @@
  */
 
 import { startDelegatorDaemon } from '@awcp/sdk';
+import { SshfsTransport } from '@awcp/transport-sshfs';
 import { resolve, join } from 'node:path';
 import { homedir } from 'node:os';
 
@@ -27,12 +28,12 @@ async function main() {
       export: {
         baseDir: exportsDir,
       },
-      ssh: {
+      transport: new SshfsTransport({
         host: 'localhost',
         user: process.env.USER || 'user',
         port: 22,
         caKeyPath: join(homedir(), '.awcp', 'ca'),
-      },
+      }),
     },
   });
 
@@ -46,7 +47,6 @@ async function main() {
   console.log('');
   console.log('Press Ctrl+C to stop.');
 
-  // Handle shutdown
   process.on('SIGINT', async () => {
     console.log('\nShutting down Delegator Daemon...');
     await daemon.stop();

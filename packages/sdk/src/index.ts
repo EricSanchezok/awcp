@@ -16,7 +16,6 @@ export {
   type DelegatorServiceStatus,
   // Config
   type DelegatorConfig,
-  type SshConfig,
   type DelegationDefaults,
   type DelegatorHooks,
   // Daemon mode

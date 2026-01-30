@@ -1,8 +1,7 @@
 /**
  * AWCP Executor Service
  *
- * Handles the AWCP delegation protocol on the Executor (Collaborator) side.
- * Integrates with A2A SDK executor for task execution.
+ * Handles the AWCP delegation protocol on the Executor side.
  */
 
 import { randomUUID } from 'node:crypto';
@@ -12,7 +11,6 @@ import {
   type AgentExecutor,
   type AgentExecutionEvent,
 } from '@a2a-js/sdk/server';
-import { SshfsMountClient } from '@awcp/transport-sshfs';
 import {
   type InviteMessage,
   type StartMessage,
@@ -22,6 +20,7 @@ import {
   type AwcpMessage,
   type TaskSpec,
   type ExecutorConstraints,
+  type ExecutorTransportAdapter,
   PROTOCOL_VERSION,
   ErrorCodes,
   AwcpError,
@@ -30,65 +29,40 @@ import { type ExecutorConfig, type ResolvedExecutorConfig, resolveExecutorConfig
 import { LocalPolicy } from './policy.js';
 import { DelegatorClient } from './delegator-client.js';
 
-/**
- * Pending invitation state
- */
 interface PendingInvitation {
   invite: InviteMessage;
   delegatorUrl: string;
   receivedAt: Date;
 }
 
-/**
- * Active delegation state
- */
 interface ActiveDelegation {
   id: string;
   delegatorUrl: string;
-  mountPoint: string;
+  workDir: string;
   task: TaskSpec;
   startedAt: Date;
 }
 
-/**
- * Executor service status
- */
 export interface ExecutorServiceStatus {
   pendingInvitations: number;
   activeDelegations: number;
   delegations: Array<{
     id: string;
-    mountPoint: string;
+    workDir: string;
     startedAt: string;
   }>;
 }
 
-/**
- * Options for creating the service
- */
 export interface ExecutorServiceOptions {
-  /** A2A agent executor */
   executor: AgentExecutor;
-  /** AWCP configuration */
   config: ExecutorConfig;
 }
 
-/**
- * AWCP Executor Service
- *
- * Manages the AWCP delegation lifecycle:
- * 1. Receives INVITE from Delegator
- * 2. Sends ACCEPT back
- * 3. Receives START with credentials
- * 4. Mounts workspace via SSHFS
- * 5. Executes task via A2A executor
- * 6. Unmounts and sends DONE/ERROR
- */
 export class ExecutorService {
   private executor: AgentExecutor;
   private config: ResolvedExecutorConfig;
+  private transport: ExecutorTransportAdapter;
   private policy: LocalPolicy;
-  private sshfsClient: SshfsMountClient;
   private delegatorClient: DelegatorClient;
   private pendingInvitations = new Map<string, PendingInvitation>();
   private activeDelegations = new Map<string, ActiveDelegation>();
@@ -96,17 +70,14 @@ export class ExecutorService {
   constructor(options: ExecutorServiceOptions) {
     this.executor = options.executor;
     this.config = resolveExecutorConfig(options.config);
+    this.transport = this.config.transport;
     this.policy = new LocalPolicy({
       mountRoot: this.config.mount.root,
       maxConcurrent: this.config.policy.maxConcurrentDelegations,
     });
-    this.sshfsClient = new SshfsMountClient();
     this.delegatorClient = new DelegatorClient();
   }
 
-  /**
-   * Handle incoming AWCP message from Delegator
-   */
   async handleMessage(
     message: AwcpMessage,
     delegatorUrl: string
@@ -125,16 +96,12 @@ export class ExecutorService {
     }
   }
 
-  /**
-   * Handle INVITE message
-   */
   private async handleInvite(
     invite: InviteMessage,
     delegatorUrl: string
   ): Promise<AcceptMessage | ErrorMessage> {
     const { delegationId } = invite;
 
-    // Check if we can accept more delegations
     if (!this.policy.canAcceptMore()) {
       return this.createErrorMessage(
         delegationId,
@@ -144,7 +111,6 @@ export class ExecutorService {
       );
     }
 
-    // Check TTL constraints
     const maxTtl = this.config.policy.maxTtlSeconds;
     if (invite.lease.ttlSeconds > maxTtl) {
       return this.createErrorMessage(
@@ -155,7 +121,6 @@ export class ExecutorService {
       );
     }
 
-    // Check access mode
     const allowedModes = this.config.policy.allowedAccessModes;
     if (!allowedModes.includes(invite.lease.accessMode)) {
       return this.createErrorMessage(
@@ -166,18 +131,16 @@ export class ExecutorService {
       );
     }
 
-    // Check dependencies
-    const depCheck = await this.sshfsClient.checkDependency();
+    const depCheck = await this.transport.checkDependency();
     if (!depCheck.available) {
       return this.createErrorMessage(
         delegationId,
         ErrorCodes.DEP_MISSING,
-        'SSHFS is not available',
-        'Install sshfs: brew install macfuse && brew install sshfs (macOS) or apt install sshfs (Linux)'
+        `Transport ${this.transport.type} is not available`,
+        depCheck.hint
       );
     }
 
-    // Call onInvite hook if provided
     if (this.config.hooks.onInvite) {
       const accepted = await this.config.hooks.onInvite(invite);
       if (!accepted) {
@@ -189,13 +152,11 @@ export class ExecutorService {
         );
       }
     } else if (!this.config.policy.autoAccept) {
-      // No hook and not auto-accept - store as pending
       this.pendingInvitations.set(delegationId, {
         invite,
         delegatorUrl,
         receivedAt: new Date(),
       });
-      // For now, we'll auto-decline if not auto-accept and no hook
       return this.createErrorMessage(
         delegationId,
         ErrorCodes.DECLINED,
@@ -204,10 +165,8 @@ export class ExecutorService {
       );
     }
 
-    // Allocate mount point
     const mountPoint = this.policy.allocateMountPoint(delegationId);
 
-    // Validate mount point
     const validation = await this.policy.validateMountPoint(mountPoint);
     if (!validation.valid) {
       await this.policy.releaseMountPoint(mountPoint);
@@ -219,21 +178,18 @@ export class ExecutorService {
       );
     }
 
-    // Store pending invitation
     this.pendingInvitations.set(delegationId, {
       invite,
       delegatorUrl,
       receivedAt: new Date(),
     });
 
-    // Build executor constraints
     const executorConstraints: ExecutorConstraints = {
       acceptedAccessMode: invite.lease.accessMode,
       maxTtlSeconds: Math.min(invite.lease.ttlSeconds, maxTtl),
       sandboxProfile: this.config.sandbox,
     };
 
-    // Return ACCEPT
     const acceptMessage: AcceptMessage = {
       version: PROTOCOL_VERSION,
       type: 'ACCEPT',
@@ -245,9 +201,6 @@ export class ExecutorService {
     return acceptMessage;
   }
 
-  /**
-   * Handle START message
-   */
   private async handleStart(start: StartMessage, delegatorUrl: string): Promise<void> {
     const { delegationId } = start;
 
@@ -257,41 +210,32 @@ export class ExecutorService {
       return;
     }
 
-    const mountPoint = this.policy.allocateMountPoint(delegationId);
+    const targetDir = this.policy.allocateMountPoint(delegationId);
     this.pendingInvitations.delete(delegationId);
 
     try {
-      // Prepare mount point
-      await this.policy.prepareMountPoint(mountPoint);
+      await this.policy.prepareMountPoint(targetDir);
 
-      // Mount the workspace
-      await this.sshfsClient.mount({
-        endpoint: start.mount.endpoint,
-        exportLocator: start.mount.exportLocator,
-        credential: start.mount.credential,
-        mountPoint,
-        options: start.mount.mountOptions,
+      const workDir = await this.transport.setup({
+        delegationId,
+        mountInfo: start.mount,
+        targetDir,
       });
 
-      // Track active delegation
       this.activeDelegations.set(delegationId, {
         id: delegationId,
         delegatorUrl,
-        mountPoint,
+        workDir,
         task: pending.invite.task,
         startedAt: new Date(),
       });
 
-      // Call onTaskStart hook
-      this.config.hooks.onTaskStart?.(delegationId, mountPoint);
+      this.config.hooks.onTaskStart?.(delegationId, workDir);
 
-      // Execute task via A2A executor
-      const result = await this.executeViaA2A(mountPoint, pending.invite.task);
+      const result = await this.executeViaA2A(workDir, pending.invite.task);
 
-      // Unmount
-      await this.sshfsClient.unmount(mountPoint);
+      await this.transport.teardown({ delegationId, workDir });
 
-      // Send DONE
       const doneMessage: DoneMessage = {
         version: PROTOCOL_VERSION,
         type: 'DONE',
@@ -301,20 +245,15 @@ export class ExecutorService {
       };
 
       await this.delegatorClient.send(delegatorUrl, doneMessage);
-
-      // Call onTaskComplete hook
       this.config.hooks.onTaskComplete?.(delegationId, result.summary);
 
-      // Cleanup
       this.activeDelegations.delete(delegationId);
-      await this.policy.releaseMountPoint(mountPoint);
+      await this.policy.releaseMountPoint(workDir);
     } catch (error) {
-      // Cleanup on error
-      await this.sshfsClient.unmount(mountPoint).catch(() => {});
+      await this.transport.teardown({ delegationId, workDir: targetDir }).catch(() => {});
       this.activeDelegations.delete(delegationId);
-      await this.policy.releaseMountPoint(mountPoint);
+      await this.policy.releaseMountPoint(targetDir);
 
-      // Send ERROR
       const errorMessage: ErrorMessage = {
         version: PROTOCOL_VERSION,
         type: 'ERROR',
@@ -325,8 +264,6 @@ export class ExecutorService {
       };
 
       await this.delegatorClient.send(delegatorUrl, errorMessage).catch(console.error);
-
-      // Call onError hook
       this.config.hooks.onError?.(
         delegationId,
         error instanceof Error ? error : new Error(String(error))
@@ -334,39 +271,30 @@ export class ExecutorService {
     }
   }
 
-  /**
-   * Handle ERROR message from Delegator
-   */
   private async handleError(error: ErrorMessage): Promise<void> {
     const { delegationId } = error;
 
-    // Cleanup if we have an active delegation
     const delegation = this.activeDelegations.get(delegationId);
     if (delegation) {
-      await this.sshfsClient.unmount(delegation.mountPoint).catch(() => {});
+      await this.transport.teardown({ delegationId, workDir: delegation.workDir }).catch(() => {});
       this.activeDelegations.delete(delegationId);
-      await this.policy.releaseMountPoint(delegation.mountPoint);
+      await this.policy.releaseMountPoint(delegation.workDir);
     }
 
-    // Remove pending invitation if any
     this.pendingInvitations.delete(delegationId);
 
-    // Call onError hook
     this.config.hooks.onError?.(
       delegationId,
       new AwcpError(error.code as any, error.message, error.hint, delegationId)
     );
   }
 
-  /**
-   * Cancel a delegation (called by Delegator via /cancel endpoint)
-   */
   async cancelDelegation(delegationId: string): Promise<void> {
     const delegation = this.activeDelegations.get(delegationId);
     if (delegation) {
-      await this.sshfsClient.unmount(delegation.mountPoint).catch(() => {});
+      await this.transport.teardown({ delegationId, workDir: delegation.workDir }).catch(() => {});
       this.activeDelegations.delete(delegationId);
-      await this.policy.releaseMountPoint(delegation.mountPoint);
+      await this.policy.releaseMountPoint(delegation.workDir);
       this.config.hooks.onError?.(
         delegationId,
         new AwcpError(ErrorCodes.CANCELLED, 'Delegation cancelled by Delegator', undefined, delegationId)
@@ -382,14 +310,10 @@ export class ExecutorService {
     throw new Error(`Delegation not found: ${delegationId}`);
   }
 
-  /**
-   * Execute task via A2A executor
-   */
   private async executeViaA2A(
-    mountPoint: string,
+    workDir: string,
     task: TaskSpec
   ): Promise<{ summary: string; highlights?: string[] }> {
-    // Create synthetic A2A message with task context
     const message: Message = {
       kind: 'message',
       messageId: randomUUID(),
@@ -398,17 +322,15 @@ export class ExecutorService {
         { kind: 'text', text: task.prompt },
         {
           kind: 'text',
-          text: `\n\n[AWCP Context]\nWorking directory: ${mountPoint}\nTask: ${task.description}`,
+          text: `\n\n[AWCP Context]\nWorking directory: ${workDir}\nTask: ${task.description}`,
         },
       ],
     };
 
-    // Create request context
     const taskId = randomUUID();
     const contextId = randomUUID();
     const requestContext = new RequestContextImpl(message, taskId, contextId);
 
-    // Create event bus and collect results
     const eventBus = new DefaultExecutionEventBus();
     const results: Message[] = [];
 
@@ -418,10 +340,8 @@ export class ExecutorService {
       }
     });
 
-    // Execute
     await this.executor.execute(requestContext, eventBus);
 
-    // Extract summary from results
     const summary = results
       .flatMap((m) => m.parts)
       .filter((p): p is { kind: 'text'; text: string } => p.kind === 'text')
@@ -433,24 +353,18 @@ export class ExecutorService {
     };
   }
 
-  /**
-   * Get service status
-   */
   getStatus(): ExecutorServiceStatus {
     return {
       pendingInvitations: this.pendingInvitations.size,
       activeDelegations: this.activeDelegations.size,
       delegations: Array.from(this.activeDelegations.values()).map((d) => ({
         id: d.id,
-        mountPoint: d.mountPoint,
+        workDir: d.workDir,
         startedAt: d.startedAt.toISOString(),
       })),
     };
   }
 
-  /**
-   * Create an error message
-   */
   private createErrorMessage(
     delegationId: string,
     code: string,
@@ -468,9 +382,6 @@ export class ExecutorService {
   }
 }
 
-/**
- * Simple RequestContext implementation
- */
 class RequestContextImpl {
   readonly userMessage: Message;
   readonly taskId: string;

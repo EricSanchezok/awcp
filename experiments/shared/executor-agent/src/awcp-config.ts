@@ -4,6 +4,7 @@
 
 import type { ExecutorConfig } from '@awcp/sdk';
 import type { InviteMessage } from '@awcp/core';
+import { SshfsTransport } from '@awcp/transport-sshfs';
 
 const scenarioDir = process.env.SCENARIO_DIR || process.cwd();
 
@@ -38,6 +39,7 @@ export const awcpConfig: ExecutorConfig = {
   mount: {
     root: `${scenarioDir}/mounts`,
   },
+  transport: new SshfsTransport(),
   sandbox: {
     cwdOnly: true,
     allowNetwork: false,

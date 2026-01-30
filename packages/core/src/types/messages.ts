@@ -28,9 +28,10 @@ export interface AuthCredential {
 }
 
 /**
- * Transport types for data plane
+ * Transport types for data plane.
+ * Extensible - new transports can be added (e.g., 'archive', 'webdav')
  */
-export type TransportType = 'sshfs';
+export type TransportType = 'sshfs' | 'archive';
 
 /**
  * Delegation lifecycle states
@@ -144,11 +145,21 @@ export interface SshCredential {
 }
 
 /**
- * Mount information in START message
+ * Mount information in START message.
+ * Base interface - transport-specific fields are defined in transport packages.
  */
 export interface MountInfo {
   /** Transport type */
   transport: TransportType;
+  /** Transport-specific configuration (defined by each transport) */
+  [key: string]: unknown;
+}
+
+/**
+ * SSHFS-specific mount information
+ */
+export interface SshfsMountInfo extends MountInfo {
+  transport: 'sshfs';
   /** Connection endpoint */
   endpoint: SshEndpoint;
   /** Export path or locator token */
@@ -157,6 +168,19 @@ export interface MountInfo {
   credential: SshCredential;
   /** Optional mount parameters */
   mountOptions?: Record<string, string>;
+}
+
+/**
+ * Archive-specific mount information (for future archive transport)
+ */
+export interface ArchiveMountInfo extends MountInfo {
+  transport: 'archive';
+  /** URL to download the workspace archive */
+  downloadUrl: string;
+  /** Checksum for verification */
+  checksum: string;
+  /** URL to upload results */
+  uploadUrl: string;
 }
 
 /**
