@@ -1,6 +1,6 @@
 {
   "name": "@awcp/mcp",
-  "version": "0.1.0",
+  "version": "0.0.1",
   "description": "MCP tools for AWCP delegation",
   "type": "module",
   "main": "dist/index.js",
@@ -21,8 +21,8 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@awcp/sdk": "*",
-    "@awcp/core": "*",
+    "@awcp/sdk": "^0.0.1",
+    "@awcp/core": "^0.0.1",
     "@modelcontextprotocol/sdk": "^1.0.0",
     "zod": "^3.23.0"
   },
