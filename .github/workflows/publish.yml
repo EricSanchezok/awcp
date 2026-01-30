@@ -1,6 +1,16 @@
 name: Publish
 
 on:
+  # Auto-publish on push to main (default: patch)
+  push:
+    branches:
+      - main
+    paths:
+      - "packages/**"
+      - "!packages/**/test/**"
+      - "!**/*.md"
+
+  # Manual trigger with version choice
   workflow_dispatch:
     inputs:
       bump:
@@ -44,7 +54,8 @@ jobs:
       - name: Bump version
         id: version
         run: |
-          npx tsx scripts/version.ts ${{ inputs.bump }}
+          BUMP_TYPE="${{ inputs.bump }}"
+          npx tsx scripts/version.ts ${BUMP_TYPE:-patch}
           VERSION=$(node -p "require('./packages/core/package.json').version")
           echo "version=$VERSION" >> $GITHUB_OUTPUT
 
