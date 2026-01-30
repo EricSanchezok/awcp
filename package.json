@@ -6,7 +6,8 @@
   "workspaces": [
     "packages/*",
     "experiments/shared/*",
-    "experiments/scenarios/*"
+    "experiments/scenarios/*",
+    "examples/*"
   ],
   "scripts": {
     "build": "npm run build -w @awcp/core && npm run build -w @awcp/transport-sshfs && npm run build -w @awcp/transport-archive && npm run build -w @awcp/sdk && npm run build -w @awcp/mcp && npm run build --workspaces --if-present",
