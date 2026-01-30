@@ -35,8 +35,8 @@ export interface TransportSetupParams {
   delegationId: string;
   /** Mount information from START message */
   mountInfo: MountInfo;
-  /** Target directory for workspace (Executor decides this) */
-  targetDir: string;
+  /** Working directory path (Executor decides this) */
+  workDir: string;
 }
 
 /**

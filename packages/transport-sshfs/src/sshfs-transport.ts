@@ -93,7 +93,7 @@ export class SshfsTransport implements TransportAdapter {
 
   async setup(params: TransportSetupParams): Promise<string> {
     this.ensureMountClient();
-    const { mountInfo, targetDir } = params;
+    const { mountInfo, workDir } = params;
 
     if (mountInfo.transport !== 'sshfs') {
       throw new Error(`SshfsTransport: unexpected transport type: ${mountInfo.transport}`);
@@ -104,11 +104,11 @@ export class SshfsTransport implements TransportAdapter {
       endpoint: info.endpoint,
       exportLocator: info.exportLocator,
       credential: info.credential,
-      mountPoint: targetDir,
+      mountPoint: workDir,
       options: info.mountOptions,
     });
 
-    return targetDir;
+    return workDir;
   }
 
   async teardown(params: TransportTeardownParams): Promise<void> {

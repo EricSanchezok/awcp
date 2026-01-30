@@ -36,9 +36,7 @@ async function validateApiKey(invite: InviteMessage): Promise<boolean> {
 }
 
 export const awcpConfig: ExecutorConfig = {
-  mount: {
-    root: `${scenarioDir}/mounts`,
-  },
+  workDir: `${scenarioDir}/mounts`,
   transport: new SshfsTransport(),
   sandbox: {
     cwdOnly: true,
@@ -63,8 +61,8 @@ export const awcpConfig: ExecutorConfig = {
       return true;
     },
     
-    onTaskStart: (delegationId: string, mountPoint: string) => {
-      console.log(`[AWCP] Task started: ${delegationId}, mount: ${mountPoint}`);
+    onTaskStart: (delegationId: string, workPath: string) => {
+      console.log(`[AWCP] Task started: ${delegationId}, path: ${workPath}`);
     },
     
     onTaskComplete: (delegationId: string, _summary: string) => {

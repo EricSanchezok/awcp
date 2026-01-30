@@ -26,7 +26,7 @@ import {
 } from '@awcp/core';
 import { type DelegatorConfig, type ResolvedDelegatorConfig, resolveDelegatorConfig } from './config.js';
 import { AdmissionController } from './admission.js';
-import { ExportViewManager } from './export-view.js';
+import { ExportManager } from './export-manager.js';
 import { ExecutorClient } from './executor-client.js';
 
 export interface DelegateParams {
@@ -59,7 +59,7 @@ export class DelegatorService {
   private callbackUrl: string;
   private transport: DelegatorTransportAdapter;
   private admissionController: AdmissionController;
-  private exportManager: ExportViewManager;
+  private exportManager: ExportManager;
   private executorClient: ExecutorClient;
   private delegations = new Map<string, Delegation>();
   private stateMachines = new Map<string, DelegationStateMachine>();
@@ -76,7 +76,7 @@ export class DelegatorService {
       maxSingleFileBytes: this.config.admission.maxSingleFileBytes,
     });
 
-    this.exportManager = new ExportViewManager({
+    this.exportManager = new ExportManager({
       baseDir: this.config.export.baseDir,
       strategy: this.config.export.strategy,
     });
@@ -109,7 +109,7 @@ export class DelegatorService {
       leaseConfig: { ttlSeconds, accessMode },
     });
 
-    const exportPath = await this.exportManager.create(delegationId, params.localDir);
+    const exportPath = await this.exportManager.allocate(delegationId, params.localDir);
     delegation.exportPath = exportPath;
 
     const stateMachine = new DelegationStateMachine();
@@ -347,7 +347,7 @@ export class DelegatorService {
 
   private async cleanup(delegationId: string): Promise<void> {
     await this.transport.cleanup(delegationId);
-    await this.exportManager.cleanup(delegationId);
+    await this.exportManager.release(delegationId);
     this.executorUrls.delete(delegationId);
   }
 }

@@ -54,11 +54,17 @@ export interface DaemonInstance {
  *
  * @example
  * ```typescript
+ * import { SshfsTransport } from '@awcp/transport-sshfs';
+ *
  * const daemon = await startDelegatorDaemon({
  *   port: 3100,
  *   delegator: {
  *     export: { baseDir: '/tmp/awcp/exports' },
- *     ssh: { host: 'localhost', user: 'awcp' },
+ *     transport: new SshfsTransport({
+ *       host: 'localhost',
+ *       user: process.env.USER,
+ *       caKeyPath: '~/.awcp/ca',
+ *     }),
  *   },
  * });
  *
@@ -251,13 +257,16 @@ export async function main(): Promise<void> {
   }
 
   if (!configPath) {
-    console.error('Usage: delegator-daemon --port 3100 --config <config.json>');
+    console.error('Usage: delegator-daemon --port 3100 --config <config.ts>');
     console.error('');
-    console.error('Config file should contain:');
-    console.error(JSON.stringify({
-      export: { baseDir: '/tmp/awcp/exports' },
-      ssh: { host: 'localhost', user: 'awcp' },
-    }, null, 2));
+    console.error('Config file should export a DelegatorConfig:');
+    console.error('');
+    console.error("  import { SshfsTransport } from '@awcp/transport-sshfs';");
+    console.error('');
+    console.error('  export default {');
+    console.error("    export: { baseDir: '/tmp/awcp/exports' },");
+    console.error('    transport: new SshfsTransport({ ... }),');
+    console.error('  };');
     process.exit(1);
   }
 

@@ -4,11 +4,6 @@
 
 import type { InviteMessage, SandboxProfile, AccessMode, ExecutorTransportAdapter } from '@awcp/core';
 
-export interface MountConfig {
-  /** Root directory for mount points */
-  root: string;
-}
-
 export interface PolicyConstraints {
   maxConcurrentDelegations?: number;
   maxTtlSeconds?: number;
@@ -18,16 +13,21 @@ export interface PolicyConstraints {
 
 export interface ExecutorHooks {
   onInvite?: (invite: InviteMessage) => Promise<boolean>;
-  onTaskStart?: (delegationId: string, mountPoint: string) => void;
+  onTaskStart?: (delegationId: string, workPath: string) => void;
   onTaskComplete?: (delegationId: string, summary: string) => void;
   onError?: (delegationId: string, error: Error) => void;
 }
 
 export interface ExecutorConfig {
-  mount: MountConfig;
+  /** Root directory for workspaces */
+  workDir: string;
+  /** Transport adapter */
   transport: ExecutorTransportAdapter;
+  /** Sandbox profile */
   sandbox?: SandboxProfile;
+  /** Policy constraints */
   policy?: PolicyConstraints;
+  /** Lifecycle hooks */
   hooks?: ExecutorHooks;
 }
 
@@ -53,7 +53,7 @@ export interface ResolvedPolicyConstraints {
 }
 
 export interface ResolvedExecutorConfig {
-  mount: MountConfig;
+  workDir: string;
   transport: ExecutorTransportAdapter;
   sandbox: SandboxProfile;
   policy: ResolvedPolicyConstraints;
@@ -62,7 +62,7 @@ export interface ResolvedExecutorConfig {
 
 export function resolveExecutorConfig(config: ExecutorConfig): ResolvedExecutorConfig {
   return {
-    mount: config.mount,
+    workDir: config.workDir,
     transport: config.transport,
     sandbox: config.sandbox ?? { ...DEFAULT_EXECUTOR_CONFIG.sandbox },
     policy: {

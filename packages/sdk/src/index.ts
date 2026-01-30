@@ -1,6 +1,6 @@
 /**
  * @awcp/sdk
- * 
+ *
  * AWCP SDK - Delegator and Executor implementations
  */
 
@@ -31,7 +31,7 @@ export {
   type AdmissionConfig,
   type AdmissionResult,
   type WorkspaceStats,
-  ExportViewManager,
+  ExportManager,
   ExecutorClient,
 } from './delegator/index.js';
 
@@ -46,13 +46,11 @@ export {
   type ExecutorServiceStatus,
   // Config
   type ExecutorConfig,
-  type MountConfig,
   type PolicyConstraints,
   type ExecutorHooks,
   // Utilities
-  LocalPolicy,
-  type PolicyConfig,
-  type MountPointValidation,
+  WorkspaceManager,
+  type WorkspaceValidation,
   DelegatorClient,
 } from './executor/index.js';
 

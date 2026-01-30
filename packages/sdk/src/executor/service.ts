@@ -1,7 +1,5 @@
 /**
  * AWCP Executor Service
- *
- * Handles the AWCP delegation protocol on the Executor side.
  */
 
 import { randomUUID } from 'node:crypto';
@@ -26,7 +24,7 @@ import {
   AwcpError,
 } from '@awcp/core';
 import { type ExecutorConfig, type ResolvedExecutorConfig, resolveExecutorConfig } from './config.js';
-import { LocalPolicy } from './policy.js';
+import { WorkspaceManager } from './workspace-manager.js';
 import { DelegatorClient } from './delegator-client.js';
 
 interface PendingInvitation {
@@ -38,7 +36,7 @@ interface PendingInvitation {
 interface ActiveDelegation {
   id: string;
   delegatorUrl: string;
-  workDir: string;
+  workPath: string;
   task: TaskSpec;
   startedAt: Date;
 }
@@ -48,7 +46,7 @@ export interface ExecutorServiceStatus {
   activeDelegations: number;
   delegations: Array<{
     id: string;
-    workDir: string;
+    workPath: string;
     startedAt: string;
   }>;
 }
@@ -62,7 +60,7 @@ export class ExecutorService {
   private executor: AgentExecutor;
   private config: ResolvedExecutorConfig;
   private transport: ExecutorTransportAdapter;
-  private policy: LocalPolicy;
+  private workspace: WorkspaceManager;
   private delegatorClient: DelegatorClient;
   private pendingInvitations = new Map<string, PendingInvitation>();
   private activeDelegations = new Map<string, ActiveDelegation>();
@@ -71,10 +69,7 @@ export class ExecutorService {
     this.executor = options.executor;
     this.config = resolveExecutorConfig(options.config);
     this.transport = this.config.transport;
-    this.policy = new LocalPolicy({
-      mountRoot: this.config.mount.root,
-      maxConcurrent: this.config.policy.maxConcurrentDelegations,
-    });
+    this.workspace = new WorkspaceManager(this.config.workDir);
     this.delegatorClient = new DelegatorClient();
   }
 
@@ -102,7 +97,7 @@ export class ExecutorService {
   ): Promise<AcceptMessage | ErrorMessage> {
     const { delegationId } = invite;
 
-    if (!this.policy.canAcceptMore()) {
+    if (this.activeDelegations.size >= this.config.policy.maxConcurrentDelegations) {
       return this.createErrorMessage(
         delegationId,
         ErrorCodes.DECLINED,
@@ -165,16 +160,16 @@ export class ExecutorService {
       );
     }
 
-    const mountPoint = this.policy.allocateMountPoint(delegationId);
+    const workPath = this.workspace.allocate(delegationId);
 
-    const validation = await this.policy.validateMountPoint(mountPoint);
+    const validation = this.workspace.validate(workPath);
     if (!validation.valid) {
-      await this.policy.releaseMountPoint(mountPoint);
+      await this.workspace.release(workPath);
       return this.createErrorMessage(
         delegationId,
         ErrorCodes.MOUNTPOINT_DENIED,
-        validation.reason ?? 'Mount point validation failed',
-        'Check mount root configuration'
+        validation.reason ?? 'Workspace validation failed',
+        'Check workDir configuration'
       );
     }
 
@@ -194,7 +189,7 @@ export class ExecutorService {
       version: PROTOCOL_VERSION,
       type: 'ACCEPT',
       delegationId,
-      executorMount: { mountPoint },
+      executorMount: { mountPoint: workPath },
       executorConstraints,
     };
 
@@ -210,31 +205,31 @@ export class ExecutorService {
       return;
     }
 
-    const targetDir = this.policy.allocateMountPoint(delegationId);
+    const workPath = this.workspace.allocate(delegationId);
     this.pendingInvitations.delete(delegationId);
 
     try {
-      await this.policy.prepareMountPoint(targetDir);
+      await this.workspace.prepare(workPath);
 
-      const workDir = await this.transport.setup({
+      const actualPath = await this.transport.setup({
         delegationId,
         mountInfo: start.mount,
-        targetDir,
+        workDir: workPath,
       });
 
       this.activeDelegations.set(delegationId, {
         id: delegationId,
         delegatorUrl,
-        workDir,
+        workPath: actualPath,
         task: pending.invite.task,
         startedAt: new Date(),
       });
 
-      this.config.hooks.onTaskStart?.(delegationId, workDir);
+      this.config.hooks.onTaskStart?.(delegationId, actualPath);
 
-      const result = await this.executeViaA2A(workDir, pending.invite.task);
+      const result = await this.executeViaA2A(actualPath, pending.invite.task);
 
-      await this.transport.teardown({ delegationId, workDir });
+      await this.transport.teardown({ delegationId, workDir: actualPath });
 
       const doneMessage: DoneMessage = {
         version: PROTOCOL_VERSION,
@@ -248,11 +243,11 @@ export class ExecutorService {
       this.config.hooks.onTaskComplete?.(delegationId, result.summary);
 
       this.activeDelegations.delete(delegationId);
-      await this.policy.releaseMountPoint(workDir);
+      await this.workspace.release(actualPath);
     } catch (error) {
-      await this.transport.teardown({ delegationId, workDir: targetDir }).catch(() => {});
+      await this.transport.teardown({ delegationId, workDir: workPath }).catch(() => {});
       this.activeDelegations.delete(delegationId);
-      await this.policy.releaseMountPoint(targetDir);
+      await this.workspace.release(workPath);
 
       const errorMessage: ErrorMessage = {
         version: PROTOCOL_VERSION,
@@ -276,9 +271,9 @@ export class ExecutorService {
 
     const delegation = this.activeDelegations.get(delegationId);
     if (delegation) {
-      await this.transport.teardown({ delegationId, workDir: delegation.workDir }).catch(() => {});
+      await this.transport.teardown({ delegationId, workDir: delegation.workPath }).catch(() => {});
       this.activeDelegations.delete(delegationId);
-      await this.policy.releaseMountPoint(delegation.workDir);
+      await this.workspace.release(delegation.workPath);
     }
 
     this.pendingInvitations.delete(delegationId);
@@ -292,9 +287,9 @@ export class ExecutorService {
   async cancelDelegation(delegationId: string): Promise<void> {
     const delegation = this.activeDelegations.get(delegationId);
     if (delegation) {
-      await this.transport.teardown({ delegationId, workDir: delegation.workDir }).catch(() => {});
+      await this.transport.teardown({ delegationId, workDir: delegation.workPath }).catch(() => {});
       this.activeDelegations.delete(delegationId);
-      await this.policy.releaseMountPoint(delegation.workDir);
+      await this.workspace.release(delegation.workPath);
       this.config.hooks.onError?.(
         delegationId,
         new AwcpError(ErrorCodes.CANCELLED, 'Delegation cancelled by Delegator', undefined, delegationId)
@@ -311,7 +306,7 @@ export class ExecutorService {
   }
 
   private async executeViaA2A(
-    workDir: string,
+    workPath: string,
     task: TaskSpec
   ): Promise<{ summary: string; highlights?: string[] }> {
     const message: Message = {
@@ -322,7 +317,7 @@ export class ExecutorService {
         { kind: 'text', text: task.prompt },
         {
           kind: 'text',
-          text: `\n\n[AWCP Context]\nWorking directory: ${workDir}\nTask: ${task.description}`,
+          text: `\n\n[AWCP Context]\nWorking directory: ${workPath}\nTask: ${task.description}`,
         },
       ],
     };
@@ -359,7 +354,7 @@ export class ExecutorService {
       activeDelegations: this.activeDelegations.size,
       delegations: Array.from(this.activeDelegations.values()).map((d) => ({
         id: d.id,
-        workDir: d.workDir,
+        workPath: d.workPath,
         startedAt: d.startedAt.toISOString(),
       })),
     };

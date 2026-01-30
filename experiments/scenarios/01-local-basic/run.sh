@@ -138,5 +138,3 @@ echo "Logs available in:"
 echo "  - logs/delegator.log"
 echo "  - logs/executor.log"
 echo ""
-echo "Press Enter to clean up and exit..."
-read

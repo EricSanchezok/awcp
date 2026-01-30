@@ -10,15 +10,16 @@ packages/
 │   └── test/          # Unit tests (vitest)
 ├── sdk/               # @awcp/sdk - Delegator and Executor implementations
 │   └── test/          # Unit tests (vitest)
-└── transport-sshfs/   # @awcp/transport-sshfs - SSHFS data plane
+└── transport-sshfs/   # @awcp/transport-sshfs - SSHFS transport adapter
     └── test/          # Unit tests (vitest)
 
 experiments/
 ├── shared/
 │   └── executor-agent/   # Shared A2A executor agent
 └── scenarios/
-    ├── 01-local-basic/   # Basic delegation test
-    └── 02-admission-test/ # Admission control test
+    ├── 01-local-basic/      # Basic delegation test
+    ├── 02-admission-test/   # Admission control test
+    └── 03-mcp-integration/  # MCP tools integration test
 ```
 
 ## Development Commands
@@ -44,8 +45,8 @@ cd experiments/scenarios/02-admission-test && ./run.sh
 @awcp/core              (no internal deps)
     ↑
 @awcp/transport-sshfs   (depends on core)
-    ↑
-@awcp/sdk               (depends on core, transport-sshfs)
+
+@awcp/sdk               (depends on core, uses transport via injection)
 ```
 
 ## Key Components
@@ -57,7 +58,7 @@ cd experiments/scenarios/02-admission-test && ./run.sh
 | `service.ts` | Main service - manages delegation lifecycle |
 | `admission.ts` | Workspace size/file count validation |
 | `config.ts` | Configuration with defaults |
-| `export-view.ts` | Creates export directories for SSHFS |
+| `export-manager.ts` | Creates export directories for delegation |
 | `executor-client.ts` | HTTP client to send messages to Executor |
 | `bin/daemon.ts` | Standalone HTTP daemon |
 | `bin/client.ts` | Client SDK for daemon API |
@@ -67,7 +68,7 @@ cd experiments/scenarios/02-admission-test && ./run.sh
 | File | Purpose |
 |------|---------|
 | `service.ts` | Main service - handles INVITE/START messages |
-| `policy.ts` | Mount point policy and cleanup |
+| `workspace-manager.ts` | Workspace allocation and cleanup |
 | `config.ts` | Configuration with defaults |
 | `delegator-client.ts` | HTTP client to send DONE/ERROR back |
 
@@ -75,6 +76,7 @@ cd experiments/scenarios/02-admission-test && ./run.sh
 
 | File | Purpose |
 |------|---------|
+| `sshfs-transport.ts` | TransportAdapter implementation |
 | `delegator/credential-manager.ts` | SSH key generation/revocation |
 | `executor/sshfs-client.ts` | SSHFS mount/unmount operations |
 
@@ -170,6 +172,7 @@ Test locations:
 ```bash
 cd experiments/scenarios/01-local-basic && ./run.sh   # Full flow
 cd experiments/scenarios/02-admission-test && ./run.sh # Admission rejection
+cd experiments/scenarios/03-mcp-integration && ./run.sh # MCP tools
 ```
 
 ## Code Style
@@ -191,7 +194,8 @@ cd experiments/scenarios/02-admission-test && ./run.sh # Admission rejection
 ## Adding New Transport
 
 1. Create `packages/transport-{name}/`
-2. Implement delegator-side: credential generation, export management
-3. Implement executor-side: mount/unmount client
-4. Add tests in `test/`
-5. Add integration scenario in `experiments/scenarios/`
+2. Implement `TransportAdapter` interface from `@awcp/core`
+3. Delegator side: `prepare()` and `cleanup()` methods
+4. Executor side: `checkDependency()`, `setup()`, and `teardown()` methods
+5. Add tests in `test/`
+6. Add integration scenario in `experiments/scenarios/`
