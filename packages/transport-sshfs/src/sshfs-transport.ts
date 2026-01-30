@@ -15,20 +15,7 @@ import type {
 } from '@awcp/core';
 import { CredentialManager } from './delegator/credential-manager.js';
 import { SshfsMountClient } from './executor/sshfs-client.js';
-
-export interface SshfsTransportConfig {
-  // Delegator-side
-  keyDir?: string;
-  host?: string;
-  port?: number;
-  user?: string;
-  caKeyPath?: string;
-
-  // Executor-side
-  tempKeyDir?: string;
-  defaultMountOptions?: Record<string, string>;
-  mountTimeout?: number;
-}
+import type { SshfsTransportConfig } from './types.js';
 
 export class SshfsTransport implements TransportAdapter {
   readonly type = 'sshfs' as const;
@@ -45,15 +32,15 @@ export class SshfsTransport implements TransportAdapter {
 
   async prepare(params: TransportPrepareParams): Promise<TransportPrepareResult> {
     if (!this.credentialManager) {
-      if (!this.config.caKeyPath) {
-        throw new Error('SshfsTransport: caKeyPath is required for Delegator operations');
+      if (!this.config.delegator?.caKeyPath) {
+        throw new Error('SshfsTransport: delegator.caKeyPath is required for Delegator operations');
       }
       this.credentialManager = new CredentialManager({
-        keyDir: this.config.keyDir,
-        sshHost: this.config.host,
-        sshPort: this.config.port,
-        sshUser: this.config.user,
-        caKeyPath: this.config.caKeyPath,
+        keyDir: this.config.delegator.keyDir,
+        sshHost: this.config.delegator.host,
+        sshPort: this.config.delegator.port,
+        sshUser: this.config.delegator.user,
+        caKeyPath: this.config.delegator.caKeyPath,
       });
     }
 
@@ -120,9 +107,9 @@ export class SshfsTransport implements TransportAdapter {
   private ensureMountClient(): void {
     if (!this.mountClient) {
       this.mountClient = new SshfsMountClient({
-        tempKeyDir: this.config.tempKeyDir,
-        defaultOptions: this.config.defaultMountOptions,
-        mountTimeout: this.config.mountTimeout,
+        tempKeyDir: this.config.executor?.tempKeyDir,
+        defaultOptions: this.config.executor?.defaultMountOptions,
+        mountTimeout: this.config.executor?.mountTimeout,
       });
     }
   }

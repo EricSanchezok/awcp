@@ -1,44 +1,8 @@
-import { spawn, type ChildProcess } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { writeFile, unlink, mkdir, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { MountFailedError, DependencyMissingError, type SshCredential } from '@awcp/core';
-
-/**
- * SSHFS Mount Client configuration
- */
-export interface SshfsMountConfig {
-  /** Directory to store temporary key files */
-  tempKeyDir?: string;
-  /** Additional sshfs options */
-  defaultOptions?: Record<string, string>;
-  /** Timeout for mount operation in ms (default: 30000) */
-  mountTimeout?: number;
-}
-
-/**
- * Mount parameters
- */
-export interface MountParams {
-  endpoint: {
-    host: string;
-    port: number;
-    user: string;
-  };
-  exportLocator: string;
-  credential: SshCredential;
-  mountPoint: string;
-  options?: Record<string, string>;
-}
-
-/**
- * Active mount tracking
- */
-export interface ActiveMount {
-  mountPoint: string;
-  keyPath: string;
-  certPath: string;
-  process?: ChildProcess;
-}
+import type { SshfsMountConfig, MountParams, ActiveMount } from '../types.js';
 
 export const DEFAULT_TEMP_KEY_DIR = '/tmp/awcp/client-keys';
 const DEFAULT_MOUNT_TIMEOUT = 30000;

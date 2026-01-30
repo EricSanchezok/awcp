@@ -61,9 +61,11 @@ export interface DaemonInstance {
  *   delegator: {
  *     export: { baseDir: '/tmp/awcp/exports' },
  *     transport: new SshfsTransport({
- *       host: 'localhost',
- *       user: process.env.USER,
- *       caKeyPath: '~/.awcp/ca',
+ *       delegator: {
+ *         host: 'localhost',
+ *         user: process.env.USER,
+ *         caKeyPath: '~/.awcp/ca',
+ *       },
  *     }),
  *   },
  * });
@@ -265,7 +267,7 @@ export async function main(): Promise<void> {
     console.error('');
     console.error('  export default {');
     console.error("    export: { baseDir: '/tmp/awcp/exports' },");
-    console.error('    transport: new SshfsTransport({ ... }),');
+    console.error('    transport: new SshfsTransport({ delegator: { ... } }),');
     console.error('  };');
     process.exit(1);
   }

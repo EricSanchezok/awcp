@@ -13,8 +13,8 @@ import { tmpdir } from 'node:os';
 import {
   SshfsMountClient,
   buildSshfsArgs,
-  type MountParams,
 } from '../src/executor/sshfs-client.js';
+import type { MountParams } from '../src/types.js';
 
 describe('SshfsMountClient', () => {
   let testDir: string;

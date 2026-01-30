@@ -3,38 +3,7 @@ import { join } from 'node:path';
 import { spawn } from 'node:child_process';
 import { homedir } from 'node:os';
 import type { SshCredential } from '@awcp/core';
-
-/**
- * SSH Credential Manager configuration
- */
-export interface CredentialManagerConfig {
-  /** Directory to store temporary keys (default: ~/.awcp/keys) */
-  keyDir?: string;
-  /** SSH server port (default: 22) */
-  sshPort?: number;
-  /** SSH server host (default: localhost) */
-  sshHost?: string;
-  /** SSH user for connections */
-  sshUser?: string;
-  /** Path to CA private key for signing certificates */
-  caKeyPath: string;
-}
-
-/**
- * Generated credential
- */
-export interface GeneratedCredential {
-  /** The private key content */
-  privateKey: string;
-  /** Path to the private key file */
-  privateKeyPath: string;
-  /** Path to the public key file */
-  publicKeyPath: string;
-  /** Path to the certificate file */
-  certPath: string;
-  /** Delegation ID for tracking */
-  delegationId: string;
-}
+import type { CredentialManagerConfig, GeneratedCredential } from '../types.js';
 
 const DEFAULT_KEY_DIR = join(homedir(), '.awcp', 'keys');
 

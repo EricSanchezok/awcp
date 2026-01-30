@@ -37,10 +37,12 @@ async function main() {
         baseDir: exportsDir,
       },
       transport: new SshfsTransport({
-        host: 'localhost',
-        user: process.env.USER || 'user',
-        port: 22,
-        caKeyPath: join(homedir(), '.awcp', 'ca'),
+        delegator: {
+          host: 'localhost',
+          user: process.env.USER || 'user',
+          port: 22,
+          caKeyPath: join(homedir(), '.awcp', 'ca'),
+        },
       }),
       admission: {
         maxTotalBytes: 1024,        // 1KB - very strict!

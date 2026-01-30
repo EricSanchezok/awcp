@@ -1,1 +1,1 @@
-export { CredentialManager, type CredentialManagerConfig, type GeneratedCredential } from './credential-manager.js';
+export { CredentialManager } from './credential-manager.js';
