@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@awcp/sdk": "^0.1.0",
+    "@awcp/transport-archive": "^0.1.0",
     "@modelcontextprotocol/sdk": "^1.12.1"
   },
   "devDependencies": {

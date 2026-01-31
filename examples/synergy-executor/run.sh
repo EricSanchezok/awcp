@@ -8,12 +8,17 @@
 #
 # Usage:
 #   ./run.sh
+#   PORT=10200 ./run.sh
 
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 cd "$SCRIPT_DIR"
+
+# Port configuration (default: 10200)
+EXECUTOR_PORT="${PORT:-10200}"
+SYNERGY_PORT="${SYNERGY_PORT:-4096}"
 
 # Colors
 RED='\033[0;31m'
@@ -71,13 +76,13 @@ fi
 mkdir -p workdir temp logs
 
 # Start Synergy server
-echo -e "\n${BLUE}Starting Synergy server on :4096...${NC}"
-synergy serve --port 4096 > logs/synergy.log 2>&1 &
+echo -e "\n${BLUE}Starting Synergy server on :${SYNERGY_PORT}...${NC}"
+synergy serve --port $SYNERGY_PORT > logs/synergy.log 2>&1 &
 SYNERGY_PID=$!
 
 # Wait for Synergy to be ready
 for i in {1..30}; do
-  if curl -s http://localhost:4096/global/health > /dev/null 2>&1; then
+  if curl -s http://localhost:$SYNERGY_PORT/global/health > /dev/null 2>&1; then
     echo -e "${GREEN}✓ Synergy started (PID: $SYNERGY_PID)${NC}"
     break
   fi
@@ -89,13 +94,13 @@ for i in {1..30}; do
 done
 
 # Start Executor Agent
-echo -e "\n${BLUE}Starting Executor Agent on :4001...${NC}"
-SCENARIO_DIR="$SCRIPT_DIR" npx tsx src/agent.ts > logs/executor.log 2>&1 &
+echo -e "\n${BLUE}Starting Executor Agent on :${EXECUTOR_PORT}...${NC}"
+PORT=$EXECUTOR_PORT SYNERGY_URL="http://localhost:$SYNERGY_PORT" SCENARIO_DIR="$SCRIPT_DIR" npx tsx src/agent.ts > logs/executor.log 2>&1 &
 EXECUTOR_PID=$!
 
 # Wait for Executor to be ready
 for i in {1..10}; do
-  if curl -s http://localhost:4001/health > /dev/null 2>&1; then
+  if curl -s http://localhost:$EXECUTOR_PORT/health > /dev/null 2>&1; then
     echo -e "${GREEN}✓ Executor started (PID: $EXECUTOR_PID)${NC}"
     break
   fi
@@ -110,10 +115,10 @@ echo ""
 echo -e "${GREEN}╔════════════════════════════════════════════════════════════════╗${NC}"
 echo -e "${GREEN}║         Synergy Executor Ready!                                ║${NC}"
 echo -e "${GREEN}╠════════════════════════════════════════════════════════════════╣${NC}"
-echo -e "${GREEN}║  Agent Card:  http://localhost:4001/.well-known/agent-card.json║${NC}"
-echo -e "${GREEN}║  A2A:         http://localhost:4001/a2a                        ║${NC}"
-echo -e "${GREEN}║  AWCP:        http://localhost:4001/awcp                       ║${NC}"
-echo -e "${GREEN}║  Synergy:     http://localhost:4096                            ║${NC}"
+printf "${GREEN}║  Agent Card:  http://localhost:%-5s/.well-known/agent-card.json║${NC}\n" "$EXECUTOR_PORT"
+printf "${GREEN}║  A2A:         http://localhost:%-5s/a2a                        ║${NC}\n" "$EXECUTOR_PORT"
+printf "${GREEN}║  AWCP:        http://localhost:%-5s/awcp                       ║${NC}\n" "$EXECUTOR_PORT"
+printf "${GREEN}║  Synergy:     http://localhost:%-5s                            ║${NC}\n" "$SYNERGY_PORT"
 echo -e "${GREEN}╚════════════════════════════════════════════════════════════════╝${NC}"
 echo ""
 echo "Logs:"

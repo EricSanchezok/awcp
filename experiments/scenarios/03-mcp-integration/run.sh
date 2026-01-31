@@ -8,9 +8,7 @@
 # Flow:
 #   MCP Client (trigger.ts)
 #       ↓ stdio (JSON-RPC)
-#   awcp-mcp server
-#       ↓ HTTP
-#   Delegator Daemon (:3100)
+#   awcp-mcp server (auto-starts Delegator Daemon)
 #       ↓ INVITE/START
 #   Executor Agent (:4001)
 #
@@ -60,7 +58,7 @@ echo ""
 cd "$SCRIPT_DIR"
 
 # Create required directories
-mkdir -p logs workdir exports
+mkdir -p logs workdir exports temp
 
 # Reset workspace
 echo -e "${YELLOW}Resetting workspace...${NC}"
@@ -73,9 +71,6 @@ cleanup() {
     echo -e "${YELLOW}Cleaning up...${NC}"
     
     # Kill background processes
-    if [ -n "$DELEGATOR_PID" ]; then
-        kill $DELEGATOR_PID 2>/dev/null || true
-    fi
     if [ -n "$EXECUTOR_PID" ]; then
         kill $EXECUTOR_PID 2>/dev/null || true
     fi
@@ -94,25 +89,11 @@ cleanup() {
 
 trap cleanup EXIT
 
-# Start Delegator Daemon
-echo ""
-echo -e "${BLUE}Starting Delegator Daemon on :3100...${NC}"
-npx tsx start-delegator.ts > logs/delegator.log 2>&1 &
-DELEGATOR_PID=$!
-sleep 2
-
-# Check if delegator started
-if ! kill -0 $DELEGATOR_PID 2>/dev/null; then
-    echo -e "${RED}Error: Delegator failed to start. Check logs/delegator.log${NC}"
-    exit 1
-fi
-echo -e "${GREEN}✓ Delegator Daemon started (PID: $DELEGATOR_PID)${NC}"
-
 # Start Executor Agent
 echo ""
 echo -e "${BLUE}Starting Executor Agent on :4001...${NC}"
 cd "$SCRIPT_DIR/../../shared/executor-agent"
-npx tsx src/agent.ts > "$SCRIPT_DIR/logs/executor.log" 2>&1 &
+AWCP_TRANSPORT=archive npx tsx src/agent.ts > "$SCRIPT_DIR/logs/executor.log" 2>&1 &
 EXECUTOR_PID=$!
 cd "$SCRIPT_DIR"
 sleep 2
@@ -133,7 +114,9 @@ echo "----------------------------------------"
 echo ""
 
 # Run MCP integration tests
+# Note: awcp-mcp will auto-start the Delegator Daemon
 echo -e "${BLUE}Running MCP integration tests...${NC}"
+echo -e "${YELLOW}(MCP server will auto-start Delegator Daemon)${NC}"
 echo ""
 npx tsx trigger.ts
 TEST_EXIT_CODE=$?
@@ -158,7 +141,6 @@ fi
 
 echo ""
 echo "Logs available in:"
-echo "  - logs/delegator.log"
 echo "  - logs/executor.log"
 echo ""
 

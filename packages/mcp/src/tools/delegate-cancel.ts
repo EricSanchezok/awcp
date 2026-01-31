@@ -1,11 +1,13 @@
 /**
- * delegate_cancel tool - Cancel an active delegation
- *
- * This will terminate the delegation, unmount the remote filesystem,
- * revoke credentials, and clean up resources.
+ * delegate_cancel tool - Cancel background delegations
  */
 
 import { z } from 'zod';
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
 
 export const delegateCancelSchema = z.object({
   delegation_id: z
@@ -15,29 +17,12 @@ export const delegateCancelSchema = z.object({
   all: z
     .boolean()
     .optional()
-    .describe('Cancel all active delegations'),
+    .describe('Cancel all running delegations'),
 });
 
 export type DelegateCancelParams = z.infer<typeof delegateCancelSchema>;
 
-export const delegateCancelDescription = `Cancel active delegations.
-
-## Parameters
-- **delegation_id** (optional): Specific delegation ID to cancel
-- **all** (optional): Cancel all active delegations
-
-## Usage
-Cancel a specific delegation:
-\`\`\`
-delegate_cancel(delegation_id: "dlg_abc123")
-\`\`\`
-
-Cancel all active delegations:
-\`\`\`
-delegate_cancel(all: true)
-\`\`\`
-
-## Notes
-- Cancellation triggers cleanup: unmount, credential revocation, export removal
-- The Executor will receive a cancellation signal
-`;
+export const delegateCancelDescription = readFileSync(
+  join(__dirname, 'delegate-cancel.txt'),
+  'utf-8'
+);

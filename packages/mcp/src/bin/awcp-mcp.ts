@@ -3,83 +3,326 @@
  * AWCP MCP Server CLI
  *
  * Starts an MCP server that provides AWCP delegation tools.
- * Connects to a running Delegator Daemon.
+ * Automatically starts the Delegator Daemon if not already running.
  *
  * Usage:
- *   awcp-mcp [--daemon-url URL]
+ *   awcp-mcp [options]
  *
- * Options:
- *   --daemon-url  URL of Delegator Daemon (default: http://localhost:3100)
- *   --help        Show this help message
- *
- * Example:
- *   awcp-mcp --daemon-url http://localhost:3100
- *
- * Claude Desktop config (claude_desktop_config.json):
- *   {
- *     "mcpServers": {
- *       "awcp": {
- *         "command": "npx",
- *         "args": ["awcp-mcp", "--daemon-url", "http://localhost:3100"]
- *       }
- *     }
- *   }
+ * See --help for all options.
  */
 
 import { createAwcpMcpServer } from '../server.js';
+import { ensureDaemonRunning, type AutoDaemonOptions } from '../auto-daemon.js';
+import { discoverPeers, type PeersContext } from '../peer-discovery.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import type { AccessMode } from '@awcp/core';
 
-async function main() {
-  const args = process.argv.slice(2);
+interface ParsedArgs {
+  // Daemon
+  daemonUrl?: string;
+  port: number;
 
-  // Parse arguments
-  let daemonUrl = 'http://localhost:3100';
+  // Export
+  exportsDir?: string;
+  exportStrategy?: 'symlink' | 'bind' | 'worktree';
+
+  // Transport
+  transport: 'archive' | 'sshfs';
+
+  // Admission
+  maxTotalBytes?: number;
+  maxFileCount?: number;
+  maxSingleFileBytes?: number;
+
+  // Defaults
+  defaultTtl?: number;
+  defaultAccessMode?: AccessMode;
+
+  // Archive transport
+  tempDir?: string;
+  publicBaseUrl?: string;
+  archiveServerPort?: number;
+
+  // SSHFS transport
+  sshCaKey?: string;
+  sshHost?: string;
+  sshPort?: number;
+  sshUser?: string;
+  sshKeyDir?: string;
+
+  // Peers
+  peerUrls: string[];
+}
+
+function parseArgs(args: string[]): ParsedArgs | null {
+  const result: ParsedArgs = {
+    port: 3100,
+    transport: 'archive',
+    peerUrls: [],
+  };
 
   for (let i = 0; i < args.length; i++) {
-    if (args[i] === '--daemon-url' && args[i + 1]) {
-      daemonUrl = args[i + 1]!;
-      i++;
-    } else if (args[i] === '--help' || args[i] === '-h') {
-      console.error(`AWCP MCP Server
+    const arg = args[i];
+    const nextArg = args[i + 1] ?? '';
 
-Provides MCP tools for workspace delegation:
-  - delegate: Delegate a local directory to a remote Executor
-  - delegate_output: Get delegation status/results
-  - delegate_cancel: Cancel active delegations
+    switch (arg) {
+      // Help
+      case '--help':
+      case '-h':
+        printHelp();
+        process.exit(0);
 
-Usage:
-  awcp-mcp [options]
+      // Daemon
+      case '--daemon-url':
+        result.daemonUrl = nextArg;
+        i++;
+        break;
+      case '--port':
+        result.port = parseInt(nextArg, 10);
+        i++;
+        break;
 
-Options:
-  --daemon-url URL  Delegator Daemon URL (default: http://localhost:3100)
-  --help, -h        Show this help message
+      // Export
+      case '--exports-dir':
+        result.exportsDir = nextArg;
+        i++;
+        break;
+      case '--export-strategy':
+        result.exportStrategy = nextArg as 'symlink' | 'bind' | 'worktree';
+        i++;
+        break;
 
-Example:
-  awcp-mcp --daemon-url http://localhost:3100
+      // Transport
+      case '--transport':
+        result.transport = nextArg as 'archive' | 'sshfs';
+        i++;
+        break;
 
-Claude Desktop config:
-  {
-    "mcpServers": {
-      "awcp": {
-        "command": "npx",
-        "args": ["awcp-mcp", "--daemon-url", "http://localhost:3100"]
-      }
+      // Admission
+      case '--max-total-bytes':
+        result.maxTotalBytes = parseInt(nextArg, 10);
+        i++;
+        break;
+      case '--max-file-count':
+        result.maxFileCount = parseInt(nextArg, 10);
+        i++;
+        break;
+      case '--max-single-file-bytes':
+        result.maxSingleFileBytes = parseInt(nextArg, 10);
+        i++;
+        break;
+
+      // Defaults
+      case '--default-ttl':
+        result.defaultTtl = parseInt(nextArg, 10);
+        i++;
+        break;
+      case '--default-access-mode':
+        result.defaultAccessMode = nextArg as AccessMode;
+        i++;
+        break;
+
+      // Archive transport
+      case '--temp-dir':
+        result.tempDir = nextArg;
+        i++;
+        break;
+      case '--public-base-url':
+        result.publicBaseUrl = nextArg;
+        i++;
+        break;
+      case '--archive-server-port':
+        result.archiveServerPort = parseInt(nextArg, 10);
+        i++;
+        break;
+
+      // SSHFS transport
+      case '--ssh-ca-key':
+        result.sshCaKey = nextArg;
+        i++;
+        break;
+      case '--ssh-host':
+        result.sshHost = nextArg;
+        i++;
+        break;
+      case '--ssh-port':
+        result.sshPort = parseInt(nextArg, 10);
+        i++;
+        break;
+      case '--ssh-user':
+        result.sshUser = nextArg;
+        i++;
+        break;
+      case '--ssh-key-dir':
+        result.sshKeyDir = nextArg;
+        i++;
+        break;
+
+      // Peers
+      case '--peers':
+        result.peerUrls = nextArg.split(',').map(u => u.trim()).filter(Boolean);
+        i++;
+        break;
     }
   }
-`);
-      process.exit(0);
+
+  return result;
+}
+
+async function main() {
+  const parsed = parseArgs(process.argv.slice(2));
+  if (!parsed) {
+    process.exit(1);
+  }
+
+  // Discover peers (fetch Agent Cards)
+  let peersContext: PeersContext | undefined;
+  if (parsed.peerUrls.length > 0) {
+    console.error(`[AWCP MCP] Discovering ${parsed.peerUrls.length} peer(s)...`);
+    peersContext = await discoverPeers(parsed.peerUrls);
+  }
+
+  // Determine daemon URL
+  let finalDaemonUrl: string;
+
+  if (parsed.daemonUrl) {
+    // Use provided daemon URL (no auto-start)
+    finalDaemonUrl = parsed.daemonUrl;
+    console.error(`[AWCP MCP] Using existing daemon at ${parsed.daemonUrl}`);
+  } else {
+    // Build auto-daemon options from parsed args
+    const options: AutoDaemonOptions = {
+      port: parsed.port,
+      exportsDir: parsed.exportsDir,
+      exportStrategy: parsed.exportStrategy,
+      transport: parsed.transport,
+      maxTotalBytes: parsed.maxTotalBytes,
+      maxFileCount: parsed.maxFileCount,
+      maxSingleFileBytes: parsed.maxSingleFileBytes,
+      defaultTtl: parsed.defaultTtl,
+      defaultAccessMode: parsed.defaultAccessMode,
+      tempDir: parsed.tempDir,
+      publicBaseUrl: parsed.publicBaseUrl,
+      archiveServerPort: parsed.archiveServerPort,
+      sshCaKey: parsed.sshCaKey,
+      sshHost: parsed.sshHost,
+      sshPort: parsed.sshPort,
+      sshUser: parsed.sshUser,
+      sshKeyDir: parsed.sshKeyDir,
+    };
+
+    const result = await ensureDaemonRunning(options);
+    finalDaemonUrl = result.url;
+
+    // Handle shutdown to clean up daemon
+    if (result.daemon) {
+      const cleanup = async () => {
+        console.error('[AWCP MCP] Shutting down daemon...');
+        await result.daemon!.stop();
+        process.exit(0);
+      };
+      process.on('SIGINT', cleanup);
+      process.on('SIGTERM', cleanup);
     }
   }
 
-  // Create server
-  const server = createAwcpMcpServer({ daemonUrl });
+  // Create MCP server with peers context
+  const server = createAwcpMcpServer({
+    daemonUrl: finalDaemonUrl,
+    peers: peersContext,
+  });
 
   // Connect via stdio
   const transport = new StdioServerTransport();
   await server.connect(transport);
 
-  // Log to stderr (stdout is for MCP protocol)
-  console.error(`[AWCP MCP] Server started, connected to daemon at ${daemonUrl}`);
+  console.error(`[AWCP MCP] Server started, daemon at ${finalDaemonUrl}`);
+  if (peersContext && peersContext.peers.length > 0) {
+    const available = peersContext.peers.filter(p => p.card).length;
+    console.error(`[AWCP MCP] ${available}/${peersContext.peers.length} peers available`);
+  }
+}
+
+function printHelp() {
+  console.error(`AWCP MCP Server - Workspace Delegation Tools
+
+Provides MCP tools for AI agents to delegate work to remote Executors:
+  - delegate: Delegate a workspace to a remote Executor
+  - delegate_output: Get delegation status/results
+  - delegate_cancel: Cancel active delegations
+
+The daemon is automatically started if not running.
+
+Usage:
+  awcp-mcp [options]
+
+Daemon Options:
+  --daemon-url URL           Use existing Delegator Daemon (skips auto-start)
+  --port PORT                Port for daemon (default: 3100)
+
+Export Options:
+  --exports-dir DIR          Directory for exports (default: ~/.awcp/exports)
+  --export-strategy TYPE     Strategy: symlink, bind, worktree (default: symlink)
+
+Transport Options:
+  --transport TYPE           Transport: archive, sshfs (default: archive)
+
+Admission Control:
+  --max-total-bytes N        Max workspace size in bytes (default: 100MB)
+  --max-file-count N         Max number of files (default: 10000)
+  --max-single-file-bytes N  Max single file size (default: 50MB)
+
+Delegation Defaults:
+  --default-ttl SECONDS      Default lease duration (default: 3600)
+  --default-access-mode MODE Default access: ro, rw (default: rw)
+
+Archive Transport Options:
+  --temp-dir DIR             Temp directory for archives (default: ~/.awcp/temp)
+  --public-base-url URL      Public URL for cloud/proxy environments
+  --archive-server-port N    Port for archive server (default: auto)
+
+SSHFS Transport Options:
+  --ssh-ca-key PATH          CA private key path (required for SSHFS)
+  --ssh-host HOST            SSH server host (default: localhost)
+  --ssh-port PORT            SSH server port (default: 22)
+  --ssh-user USER            SSH username (default: current user)
+  --ssh-key-dir DIR          SSH key directory (default: ~/.awcp/keys)
+
+Peer Discovery:
+  --peers URL,...            Comma-separated list of executor base URLs
+
+Other:
+  --help, -h                 Show this help message
+
+Examples:
+  # Basic usage with one peer
+  awcp-mcp --peers http://localhost:4001
+
+  # Multiple peers
+  awcp-mcp --peers http://agent1:4001,http://agent2:4002
+
+  # Custom admission limits
+  awcp-mcp --peers http://localhost:4001 --max-total-bytes 200000000
+
+  # Use SSHFS transport
+  awcp-mcp --peers http://localhost:4001 --transport sshfs --ssh-ca-key ~/.awcp/ca
+
+  # Cloud environment with public URL
+  awcp-mcp --peers http://executor.example.com --public-base-url https://delegator.example.com
+
+Claude Desktop config (claude_desktop_config.json):
+  {
+    "mcpServers": {
+      "awcp": {
+        "command": "npx",
+        "args": ["@awcp/mcp", "--peers", "http://localhost:4001"]
+      }
+    }
+  }
+
+The --peers flag fetches A2A Agent Cards at startup to provide context
+about available executors and their capabilities to the LLM.
+`);
 }
 
 main().catch((error) => {

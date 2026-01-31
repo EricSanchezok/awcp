@@ -1,0 +1,16 @@
+Cancel background delegations.
+
+## Parameters
+- **delegation_id** (optional): Specific delegation ID to cancel
+- **all** (optional): Cancel all running delegations
+
+## Usage
+Cancel a specific delegation:
+```
+delegate_cancel(delegation_id: "dlg_abc123")
+```
+
+Cancel all running delegations:
+```
+delegate_cancel(all: true)
+```

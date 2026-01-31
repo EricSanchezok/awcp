@@ -2,8 +2,7 @@
  * Trigger script - Tests MCP tools by using MCP Client to call delegate/delegate_output tools
  *
  * This simulates how an AI Agent (like Claude) would use the AWCP MCP tools.
- * Instead of directly calling DelegatorDaemonClient, we spawn the awcp-mcp server
- * and communicate via MCP protocol over stdio.
+ * The MCP server auto-starts its own Delegator Daemon.
  */
 
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
@@ -13,8 +12,8 @@ import { fileURLToPath } from 'node:url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-const DELEGATOR_URL = process.env.DELEGATOR_URL || 'http://localhost:3100';
 const EXECUTOR_URL = process.env.EXECUTOR_URL || 'http://localhost:4001/awcp';
+const EXECUTOR_BASE_URL = process.env.EXECUTOR_BASE_URL || 'http://localhost:4001';
 const SCENARIO_DIR = process.env.SCENARIO_DIR || process.cwd();
 const MCP_SERVER_PATH = resolve(__dirname, '../../../packages/mcp/dist/bin/awcp-mcp.js');
 
@@ -60,16 +59,26 @@ async function main() {
   console.log('╚════════════════════════════════════════════════════════════╝');
   console.log('');
   console.log(`MCP Server:   ${MCP_SERVER_PATH}`);
-  console.log(`Daemon URL:   ${DELEGATOR_URL}`);
+  console.log(`Scenario Dir: ${SCENARIO_DIR}`);
   console.log(`Executor URL: ${EXECUTOR_URL}`);
+  console.log(`Peers:        ${EXECUTOR_BASE_URL}`);
   console.log('');
 
   // Create MCP client transport - spawns the awcp-mcp server
+  // MCP server will auto-start its own Delegator Daemon
   log(BLUE, '[MCP]', 'Starting MCP server via stdio transport...');
+
+  const exportsDir = resolve(SCENARIO_DIR, 'exports');
+  const tempDir = resolve(SCENARIO_DIR, 'temp');
 
   const transport = new StdioClientTransport({
     command: 'node',
-    args: [MCP_SERVER_PATH, '--daemon-url', DELEGATOR_URL],
+    args: [
+      MCP_SERVER_PATH,
+      '--peers', EXECUTOR_BASE_URL,
+      '--exports-dir', exportsDir,
+      '--temp-dir', tempDir,
+    ],
   });
 
   const client = new Client(
@@ -81,8 +90,8 @@ async function main() {
     await client.connect(transport);
     log(GREEN, '✓', 'MCP client connected');
 
-    // Test 1: List available tools
-    await testListTools(client);
+    // Test 1: List available tools and verify peer info in delegate description
+    await testListToolsWithPeers(client);
 
     // Test 2: Synchronous delegation (background=false)
     await testSyncDelegation(client);
@@ -102,8 +111,8 @@ async function main() {
   printSummary();
 }
 
-async function testListTools(client: Client) {
-  const testName = 'List MCP tools';
+async function testListToolsWithPeers(client: Client) {
+  const testName = 'List MCP tools with peer info';
   log(BLUE, '\n[TEST]', testName);
 
   try {
@@ -120,6 +129,36 @@ async function testListTools(client: Client) {
     }
 
     log(GREEN, '✓', 'All expected tools found');
+
+    // Check that delegate tool description includes peer info
+    const delegateTool = tools.find((t) => t.name === 'delegate');
+    if (!delegateTool) {
+      throw new Error('delegate tool not found');
+    }
+
+    const description = delegateTool.description || '';
+    console.log(`  Delegate tool description length: ${description.length} chars`);
+
+    // Check for "Available Executors" section
+    if (!description.includes('Available Executors')) {
+      throw new Error('delegate tool description does not include "Available Executors" section');
+    }
+
+    // Check for executor URL
+    if (!description.includes(EXECUTOR_BASE_URL)) {
+      throw new Error(`delegate tool description does not include executor URL: ${EXECUTOR_BASE_URL}`);
+    }
+
+    log(GREEN, '✓', 'Peer info found in delegate tool description');
+    
+    // Print a snippet of the description
+    const executorSection = description.split('Available Executors')[1]?.slice(0, 300);
+    if (executorSection) {
+      console.log('  --- Executor Info Preview ---');
+      console.log('  ' + executorSection.replace(/\n/g, '\n  '));
+      console.log('  ---');
+    }
+
     results.push({ name: testName, passed: true });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -152,9 +191,16 @@ async function testSyncDelegation(client: Client) {
     const text = getTextContent(result);
     console.log('  Result:', text?.slice(0, 200) + (text && text.length > 200 ? '...' : ''));
 
-    // Check if successful
+    // Check if successful - both MCP error flag and content status
     if (!text || result.isError) {
-      throw new Error('Delegation failed: ' + JSON.stringify(result));
+      throw new Error('Delegation failed (MCP error): ' + JSON.stringify(result));
+    }
+
+    // Check the content for error status
+    if (text.includes('Status: error')) {
+      const errorMatch = text.match(/--- Error ---\n(.+?)(?:\n|$)/);
+      const errorMsg = errorMatch ? errorMatch[1] : 'Unknown error';
+      throw new Error('Delegation failed: ' + errorMsg);
     }
 
     log(GREEN, '✓', 'Sync delegation completed successfully');
@@ -217,7 +263,14 @@ async function testAsyncDelegation(client: Client) {
     console.log('  Output result:', outputText?.slice(0, 200));
 
     if (outputResult.isError) {
-      throw new Error('delegate_output failed: ' + outputText);
+      throw new Error('delegate_output failed (MCP error): ' + outputText);
+    }
+
+    // Check the content for error status
+    if (outputText?.includes('Status: error')) {
+      const errorMatch = outputText.match(/--- Error ---\n(.+?)(?:\n|$)/);
+      const errorMsg = errorMatch ? errorMatch[1] : 'Unknown error';
+      throw new Error('Async delegation failed: ' + errorMsg);
     }
 
     log(GREEN, '✓', 'Async delegation completed successfully');

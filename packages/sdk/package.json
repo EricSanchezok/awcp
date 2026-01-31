@@ -18,6 +18,10 @@
       "types": "./dist/delegator/bin/client.d.ts",
       "import": "./dist/delegator/bin/client.js"
     },
+    "./delegator/daemon": {
+      "types": "./dist/delegator/bin/daemon.d.ts",
+      "import": "./dist/delegator/bin/daemon.js"
+    },
     "./executor": {
       "types": "./dist/executor/index.d.ts",
       "import": "./dist/executor/index.js"
