@@ -48,6 +48,7 @@ export {
   type ExecutorConfig,
   type PolicyConstraints,
   type ExecutorHooks,
+  type TaskStartContext,
   // Utilities
   WorkspaceManager,
   type WorkspaceValidation,

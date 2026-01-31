@@ -15,6 +15,7 @@ import { synergyAgentCard } from './agent-card.js';
 import { SynergyExecutor } from './synergy-executor.js';
 import { awcpConfig } from './awcp-config.js';
 import { loadConfig } from './config.js';
+import type { TaskStartContext } from '@awcp/sdk';
 
 const config = loadConfig();
 
@@ -45,13 +46,15 @@ const awcpConfigWithHooks = {
   ...awcpConfig,
   hooks: {
     ...awcpConfig.hooks,
-    onTaskStart: (delegationId: string, workPath: string) => {
-      // Set the executor's working directory to the mounted/extracted workspace
-      executor.setWorkingDirectory(workPath);
-      awcpConfig.hooks?.onTaskStart?.(delegationId, workPath);
+    onTaskStart: (ctx: TaskStartContext) => {
+      // Set the executor's working directory with lease info for timeout management
+      executor.setWorkingDirectory(ctx.workPath, {
+        leaseExpiresAt: new Date(ctx.lease.expiresAt),
+        delegationId: ctx.delegationId,
+      });
+      awcpConfig.hooks?.onTaskStart?.(ctx);
     },
     onTaskComplete: (delegationId: string, summary: string) => {
-      // Clear the working directory after task completes
       executor.clearWorkingDirectory();
       awcpConfig.hooks?.onTaskComplete?.(delegationId, summary);
     },

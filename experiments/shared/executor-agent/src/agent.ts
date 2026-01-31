@@ -10,6 +10,7 @@ import { AGENT_CARD_PATH } from '@a2a-js/sdk';
 import { DefaultRequestHandler, InMemoryTaskStore } from '@a2a-js/sdk/server';
 import { agentCardHandler, jsonRpcHandler, UserBuilder } from '@a2a-js/sdk/server/express';
 import { executorHandler } from '@awcp/sdk/server/express';
+import type { TaskStartContext } from '@awcp/sdk';
 
 import { executorAgentCard } from './agent-card.js';
 import { FileOperationExecutor } from './executor.js';
@@ -40,13 +41,11 @@ const awcpConfigWithHooks = {
   ...awcpConfig,
   hooks: {
     ...awcpConfig.hooks,
-    onTaskStart: (delegationId: string, mountPoint: string) => {
-      // Set the executor's working directory to the mounted workspace
-      executor.setWorkingDirectory(mountPoint);
-      awcpConfig.hooks?.onTaskStart?.(delegationId, mountPoint);
+    onTaskStart: (ctx: TaskStartContext) => {
+      executor.setWorkingDirectory(ctx.workPath);
+      awcpConfig.hooks?.onTaskStart?.(ctx);
     },
     onTaskComplete: (delegationId: string, summary: string) => {
-      // Clear the working directory after task completes
       executor.clearWorkingDirectory();
       awcpConfig.hooks?.onTaskComplete?.(delegationId, summary);
     },

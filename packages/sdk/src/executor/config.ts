@@ -2,7 +2,7 @@
  * AWCP Executor Configuration
  */
 
-import type { InviteMessage, SandboxProfile, AccessMode, ExecutorTransportAdapter } from '@awcp/core';
+import type { InviteMessage, SandboxProfile, AccessMode, ExecutorTransportAdapter, ActiveLease, TaskSpec } from '@awcp/core';
 
 export interface PolicyConstraints {
   maxConcurrentDelegations?: number;
@@ -11,9 +11,16 @@ export interface PolicyConstraints {
   autoAccept?: boolean;
 }
 
+export interface TaskStartContext {
+  delegationId: string;
+  workPath: string;
+  task: TaskSpec;
+  lease: ActiveLease;
+}
+
 export interface ExecutorHooks {
   onInvite?: (invite: InviteMessage) => Promise<boolean>;
-  onTaskStart?: (delegationId: string, workPath: string) => void;
+  onTaskStart?: (context: TaskStartContext) => void;
   onTaskComplete?: (delegationId: string, summary: string) => void;
   onError?: (delegationId: string, error: Error) => void;
 }

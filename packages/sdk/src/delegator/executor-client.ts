@@ -36,8 +36,10 @@ export class ExecutorClient {
     const baseUrl = executorUrl.replace(/\/$/, '').replace(/\/awcp$/, '');
     const url = `${baseUrl}/awcp/tasks/${delegationId}/events`;
 
+    const controller = new AbortController();
     const response = await fetch(url, {
       headers: { Accept: 'text/event-stream' },
+      signal: controller.signal,
     });
 
     if (!response.ok) {

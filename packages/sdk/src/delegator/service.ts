@@ -220,7 +220,9 @@ export class DelegatorService {
 
   private async subscribeToTaskEvents(delegationId: string, executorUrl: string): Promise<void> {
     try {
+      console.log(`[AWCP Delegator] Subscribing to SSE for ${delegationId}`);
       for await (const event of this.executorClient.subscribeTask(executorUrl, delegationId)) {
+        console.log(`[AWCP Delegator] SSE event for ${delegationId}: ${event.type}`);
         await this.handleTaskEvent(delegationId, event);
         if (event.type === 'done' || event.type === 'error') {
           break;
@@ -228,6 +230,16 @@ export class DelegatorService {
       }
     } catch (error) {
       console.error(`[AWCP Delegator] SSE subscription error for ${delegationId}:`, error);
+      // Mark delegation as error if SSE fails and task hasn't completed
+      const delegation = this.delegations.get(delegationId);
+      if (delegation && !['completed', 'error', 'cancelled'].includes(delegation.state)) {
+        delegation.state = 'error';
+        delegation.error = {
+          code: 'SSE_FAILED',
+          message: error instanceof Error ? error.message : 'SSE subscription failed',
+        };
+        this.delegations.set(delegationId, delegation);
+      }
     }
   }
 
