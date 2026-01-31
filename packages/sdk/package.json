@@ -1,6 +1,6 @@
 {
   "name": "@awcp/sdk",
-  "version": "0.1.0",
+  "version": "0.0.1",
   "description": "AWCP SDK - Delegator and Executor Daemon implementations",
   "type": "module",
   "main": "./dist/index.js",
