@@ -12,8 +12,8 @@
     "clean": "./cleanup.sh"
   },
   "dependencies": {
-    "@awcp/sdk": "^0.1.0",
-    "@awcp/transport-archive": "^0.1.0"
+    "@awcp/sdk": "*",
+    "@awcp/transport-archive": "*"
   },
   "devDependencies": {
     "tsx": "^4.7.0"

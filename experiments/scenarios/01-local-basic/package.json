@@ -12,7 +12,7 @@
     "clean": "./cleanup.sh"
   },
   "dependencies": {
-    "@awcp/sdk": "^0.1.0"
+    "@awcp/sdk": "*"
   },
   "devDependencies": {
     "tsx": "^4.7.0"
