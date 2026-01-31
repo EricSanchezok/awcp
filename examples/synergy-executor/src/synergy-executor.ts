@@ -13,7 +13,7 @@ export class SynergyExecutor implements AgentExecutor {
   private workingDirectory: string | null = null;
   private synergyUrl: string;
 
-  constructor(synergyUrl = 'http://localhost:4096') {
+  constructor(synergyUrl = 'http://localhost:2026') {
     this.synergyUrl = synergyUrl;
   }
 

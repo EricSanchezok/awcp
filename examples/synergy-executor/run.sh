@@ -18,7 +18,7 @@ cd "$SCRIPT_DIR"
 
 # Port configuration (default: 10200)
 EXECUTOR_PORT="${PORT:-10200}"
-SYNERGY_PORT="${SYNERGY_PORT:-4096}"
+SYNERGY_PORT="${SYNERGY_PORT:-2026}"
 
 # Colors
 RED='\033[0;31m'

@@ -34,15 +34,15 @@ This example demonstrates how to create a production-ready AWCP Executor that us
 ```
 
 This will:
-1. Start Synergy server on port 4096
-2. Start Executor Agent on port 4001
+1. Start Synergy server on port 2026
+2. Start Executor Agent on port 10200
 3. Display endpoints for A2A and AWCP
 
 ## Manual Start
 
 ```bash
 # Terminal 1: Start Synergy
-synergy serve --port 4096
+synergy serve --port 2026
 
 # Terminal 2: Start Executor
 npm install
@@ -66,7 +66,7 @@ Environment variables:
 |----------|---------|-------------|
 | `PORT` | `10200` | Executor agent port |
 | `AGENT_URL` | `http://localhost:${PORT}` | Public URL for Agent Card (set this for public deployment) |
-| `SYNERGY_URL` | `http://localhost:4096` | Synergy server URL |
+| `SYNERGY_URL` | `http://localhost:2026` | Synergy server URL |
 | `AWCP_TRANSPORT` | `archive` | Transport type (`archive` or `sshfs`) |
 | `SCENARIO_DIR` | `./` | Directory for workdir/temp/logs |
 

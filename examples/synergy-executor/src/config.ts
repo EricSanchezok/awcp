@@ -15,7 +15,7 @@ export function loadConfig(): Config {
   return {
     port,
     agentUrl: process.env.AGENT_URL || `http://localhost:${port}`,
-    synergyUrl: process.env.SYNERGY_URL || 'http://localhost:4096',
+    synergyUrl: process.env.SYNERGY_URL || 'http://localhost:2026',
     synergyAutoStart: process.env.SYNERGY_AUTO_START !== 'false',
     scenarioDir: process.env.SCENARIO_DIR || process.cwd(),
   };

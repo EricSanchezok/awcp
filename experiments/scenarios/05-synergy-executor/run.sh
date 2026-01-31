@@ -13,7 +13,7 @@
 #       | INVITE/START + SSE events
 #   synergy-executor (:10200)
 #       | HTTP API
-#   synergy serve (:4096)
+#   synergy serve (:2026)
 #
 # Prerequisites:
 #   - Synergy installed: npm install -g @ericsanchezok/synergy@latest
@@ -29,7 +29,7 @@ export SCENARIO_DIR="$SCRIPT_DIR"
 
 # Port configuration
 EXECUTOR_PORT="${EXECUTOR_PORT:-10200}"
-SYNERGY_PORT="${SYNERGY_PORT:-4096}"
+SYNERGY_PORT="${SYNERGY_PORT:-2026}"
 
 # Colors for output
 RED='\033[0;31m'
