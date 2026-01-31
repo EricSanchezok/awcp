@@ -1,0 +1,20 @@
+{
+  "name": "@awcp-experiments/05-synergy-executor",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "Synergy Executor experiment - tests AWCP + MCP with Synergy AI coding agent",
+  "scripts": {
+    "build": "echo 'No build needed - using tsx'",
+    "trigger": "npx tsx trigger.ts",
+    "clean": "./cleanup.sh"
+  },
+  "dependencies": {
+    "@awcp/sdk": "^0.1.0",
+    "@awcp/transport-archive": "^0.1.0",
+    "@modelcontextprotocol/sdk": "^1.12.1"
+  },
+  "devDependencies": {
+    "tsx": "^4.7.0"
+  }
+}

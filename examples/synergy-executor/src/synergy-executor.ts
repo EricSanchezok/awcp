@@ -79,6 +79,7 @@ export class SynergyExecutor implements AgentExecutor {
     console.log(`[SynergyExecutor] Created session: ${session.id}`);
 
     // Send prompt and wait for response
+    // Synergy API expects parts array: [{ type: 'text', text: '...' }]
     const promptRes = await fetch(`${this.synergyUrl}/session/${session.id}/message`, {
       method: 'POST',
       headers: {
@@ -86,7 +87,7 @@ export class SynergyExecutor implements AgentExecutor {
         'x-synergy-directory': this.workingDirectory!,
       },
       body: JSON.stringify({
-        content: prompt,
+        parts: [{ type: 'text', text: prompt }],
       }),
     });
 
