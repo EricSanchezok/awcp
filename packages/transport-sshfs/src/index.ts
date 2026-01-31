@@ -17,7 +17,7 @@ export type {
   SshfsMountConfig,
   MountParams,
   ActiveMount,
-  SshfsMountInfo,
+  SshfsWorkDirInfo,
   SshCredential,
   SshEndpoint,
 } from './types.js';

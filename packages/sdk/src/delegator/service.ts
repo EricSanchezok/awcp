@@ -17,6 +17,7 @@ import {
   type AccessMode,
   type AuthCredential,
   type DelegatorTransportAdapter,
+  type TaskEvent,
   DelegationStateMachine,
   createDelegation,
   applyMessageToDelegation,
@@ -51,12 +52,10 @@ export interface DelegatorServiceStatus {
 
 export interface DelegatorServiceOptions {
   config: DelegatorConfig;
-  callbackUrl: string;
 }
 
 export class DelegatorService {
   private config: ResolvedDelegatorConfig;
-  private callbackUrl: string;
   private transport: DelegatorTransportAdapter;
   private admissionController: AdmissionController;
   private exportManager: ExportManager;
@@ -67,7 +66,6 @@ export class DelegatorService {
 
   constructor(options: DelegatorServiceOptions) {
     this.config = resolveDelegatorConfig(options.config);
-    this.callbackUrl = options.callbackUrl;
     this.transport = this.config.transport;
 
     this.admissionController = new AdmissionController({
@@ -81,9 +79,7 @@ export class DelegatorService {
       strategy: this.config.export.strategy,
     });
 
-    this.executorClient = new ExecutorClient({
-      callbackUrl: this.callbackUrl,
-    });
+    this.executorClient = new ExecutorClient();
   }
 
   async delegate(params: DelegateParams): Promise<string> {
@@ -180,7 +176,7 @@ export class DelegatorService {
     updated.state = stateMachine.getState();
     this.delegations.set(delegation.id, updated);
 
-    const { mountInfo } = await this.transport.prepare({
+    const { workDirInfo } = await this.transport.prepare({
       delegationId: delegation.id,
       exportPath: updated.exportPath!,
       ttlSeconds: delegation.leaseConfig.ttlSeconds,
@@ -198,7 +194,7 @@ export class DelegatorService {
         expiresAt,
         accessMode: delegation.leaseConfig.accessMode,
       },
-      mount: mountInfo,
+      workDir: workDirInfo,
     };
 
     stateMachine.transition({ type: 'SEND_START', message: startMessage });
@@ -209,6 +205,59 @@ export class DelegatorService {
 
     await this.executorClient.sendStart(executorUrl, startMessage);
     this.config.hooks.onDelegationStarted?.(updated);
+
+    // Subscribe to SSE events for task completion
+    this.subscribeToTaskEvents(delegation.id, executorUrl);
+  }
+
+  private async subscribeToTaskEvents(delegationId: string, executorUrl: string): Promise<void> {
+    try {
+      for await (const event of this.executorClient.subscribeTask(executorUrl, delegationId)) {
+        await this.handleTaskEvent(delegationId, event);
+        if (event.type === 'done' || event.type === 'error') {
+          break;
+        }
+      }
+    } catch (error) {
+      console.error(`[AWCP Delegator] SSE subscription error for ${delegationId}:`, error);
+    }
+  }
+
+  private async handleTaskEvent(delegationId: string, event: TaskEvent): Promise<void> {
+    const delegation = this.delegations.get(delegationId);
+    if (!delegation) return;
+
+    const stateMachine = this.stateMachines.get(delegationId)!;
+
+    if (event.type === 'status' && stateMachine.getState() === 'started') {
+      stateMachine.transition({ type: 'SETUP_COMPLETE' });
+      delegation.state = stateMachine.getState();
+      delegation.updatedAt = new Date().toISOString();
+      this.delegations.set(delegationId, delegation);
+    }
+
+    if (event.type === 'done') {
+      const doneMessage: DoneMessage = {
+        version: PROTOCOL_VERSION,
+        type: 'DONE',
+        delegationId,
+        finalSummary: event.summary,
+        highlights: event.highlights,
+      };
+      await this.handleDone(doneMessage);
+    }
+
+    if (event.type === 'error') {
+      const errorMessage: ErrorMessage = {
+        version: PROTOCOL_VERSION,
+        type: 'ERROR',
+        delegationId,
+        code: event.code,
+        message: event.message,
+        hint: event.hint,
+      };
+      await this.handleError(errorMessage);
+    }
   }
 
   async handleDone(message: DoneMessage): Promise<void> {
@@ -221,7 +270,7 @@ export class DelegatorService {
     const stateMachine = this.stateMachines.get(message.delegationId)!;
 
     if (stateMachine.getState() === 'started') {
-      stateMachine.transition({ type: 'MOUNT_COMPLETE' });
+      stateMachine.transition({ type: 'SETUP_COMPLETE' });
     }
 
     const result = stateMachine.transition({ type: 'RECEIVE_DONE', message });

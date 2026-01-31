@@ -49,10 +49,6 @@ export interface AutoDaemonOptions {
   // === Archive Transport Options ===
   /** Directory for temp files (default: ~/.awcp/temp) */
   tempDir?: string;
-  /** Public base URL for cloud/proxy environments */
-  publicBaseUrl?: string;
-  /** Port for archive HTTP server (default: auto) */
-  archiveServerPort?: number;
 
   // === SSHFS Transport Options ===
   /** Path to CA private key (required for SSHFS) */
@@ -132,8 +128,6 @@ async function createDefaultConfig(options: AutoDaemonOptions): Promise<Delegato
     transport = new ArchiveTransport({
       delegator: {
         tempDir,
-        serverPort: options.archiveServerPort ?? 0,
-        publicBaseUrl: options.publicBaseUrl,
       },
     });
   }

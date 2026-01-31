@@ -116,7 +116,7 @@ describe('DelegationStateMachine', () => {
         version: PROTOCOL_VERSION,
         type: 'ACCEPT',
         delegationId,
-        executorMount: { mountPoint: '/mounts/test-123' },
+        executorWorkDir: { path: '/mounts/test-123' },
       };
       expect(sm.transition({ type: 'RECEIVE_ACCEPT', message: accept })).toMatchObject({
         success: true,
@@ -129,7 +129,7 @@ describe('DelegationStateMachine', () => {
         type: 'START',
         delegationId,
         lease: { expiresAt: new Date().toISOString(), accessMode: 'rw' },
-        mount: {
+        workDir: {
           transport: 'sshfs',
           endpoint: { host: 'localhost', port: 22, user: 'test' },
           exportLocator: '/tmp/test',
@@ -142,7 +142,7 @@ describe('DelegationStateMachine', () => {
       });
 
       // started -> running
-      expect(sm.transition({ type: 'MOUNT_COMPLETE' })).toMatchObject({
+      expect(sm.transition({ type: 'SETUP_COMPLETE' })).toMatchObject({
         success: true,
         newState: 'running',
       });
@@ -250,7 +250,7 @@ describe('DelegationStateMachine', () => {
         version: PROTOCOL_VERSION,
         type: 'ACCEPT',
         delegationId: 'test',
-        executorMount: { mountPoint: '/mounts/test' },
+        executorWorkDir: { path: '/mounts/test' },
       };
       expect(sm.transition({ type: 'RECEIVE_ACCEPT', message: accept })).toMatchObject({
         success: false,
@@ -295,7 +295,7 @@ describe('applyMessageToDelegation', () => {
       version: PROTOCOL_VERSION,
       type: 'ACCEPT',
       delegationId: 'test-123',
-      executorMount: { mountPoint: '/mounts/test-123' },
+      executorWorkDir: { path: '/mounts/test-123' },
       executorConstraints: { 
         acceptedAccessMode: 'rw',
         sandboxProfile: { cwdOnly: true } 
@@ -303,7 +303,7 @@ describe('applyMessageToDelegation', () => {
     };
 
     const updated = applyMessageToDelegation(baseDelegation, accept);
-    expect(updated.executorMount).toEqual({ mountPoint: '/mounts/test-123' });
+    expect(updated.executorWorkDir).toEqual({ path: '/mounts/test-123' });
     expect(updated.executorConstraints?.sandboxProfile?.cwdOnly).toBe(true);
   });
 

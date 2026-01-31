@@ -12,7 +12,7 @@ import type { DelegatorTransportAdapter } from '@awcp/core';
 // Mock transport adapter
 const mockTransport: DelegatorTransportAdapter = {
   type: 'sshfs',
-  prepare: async () => ({ mountInfo: { transport: 'sshfs' } }),
+  prepare: async () => ({ workDirInfo: { transport: 'sshfs' } }),
   cleanup: async () => {},
 };
 

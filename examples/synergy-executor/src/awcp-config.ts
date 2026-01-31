@@ -27,8 +27,6 @@ function createTransport(): TransportAdapter {
       return new ArchiveTransport({
         executor: {
           tempDir: `${config.scenarioDir}/temp`,
-          downloadTimeout: 120000,
-          uploadTimeout: 120000,
         },
       });
   }

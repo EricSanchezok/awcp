@@ -11,4 +11,3 @@ export {
 
 // Utilities
 export { WorkspaceManager, type WorkspaceValidation } from './workspace-manager.js';
-export { DelegatorClient } from './delegator-client.js';

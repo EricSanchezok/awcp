@@ -41,16 +41,15 @@ describe('ArchiveTransport', () => {
       ttlSeconds: 300,
     });
 
-    expect(prepareResult.mountInfo.transport).toBe('archive');
-    expect(prepareResult.mountInfo.downloadUrl).toContain('/archive/test-delegation/download');
-    expect(prepareResult.mountInfo.uploadUrl).toContain('/archive/test-delegation/upload');
-    expect(prepareResult.mountInfo.checksum).toMatch(/^[a-f0-9]{64}$/);
+    expect(prepareResult.workDirInfo.transport).toBe('archive');
+    expect(prepareResult.workDirInfo.workspaceBase64).toBeDefined();
+    expect(prepareResult.workDirInfo.checksum).toMatch(/^[a-f0-9]{64}$/);
 
     // Executor: setup (download and extract)
     const workDir = path.join(tempDir, 'work');
     const resultPath = await transport.setup({
       delegationId: 'test-delegation',
-      mountInfo: prepareResult.mountInfo,
+      workDirInfo: prepareResult.workDirInfo,
       workDir,
     });
 
@@ -84,7 +83,7 @@ describe('ArchiveTransport', () => {
     const workDir = path.join(tempDir, 'work');
     await transport.setup({
       delegationId: 'test-delegation',
-      mountInfo: prepareResult.mountInfo,
+      workDirInfo: prepareResult.workDirInfo,
       workDir,
     });
 
@@ -92,23 +91,34 @@ describe('ArchiveTransport', () => {
     await fs.promises.writeFile(path.join(workDir, 'original.txt'), 'modified content');
     await fs.promises.writeFile(path.join(workDir, 'new-file.txt'), 'new file content');
 
-    // Executor: teardown (upload changes)
-    await transport.teardown({
+    // Executor: teardown (returns result as base64)
+    const teardownResult = await transport.teardown({
       delegationId: 'test-delegation',
       workDir,
     });
 
-    // Delegator: cleanup (apply changes)
-    await transport.cleanup('test-delegation');
+    // Verify teardown returns base64 result
+    expect(teardownResult.resultBase64).toBeDefined();
+    expect(teardownResult.resultBase64!.length).toBeGreaterThan(0);
 
-    // Verify changes were applied to export directory
+    // Verify the result can be decoded and contains the changes
+    const resultBuffer = Buffer.from(teardownResult.resultBase64!, 'base64');
+    const resultPath = path.join(tempDir, 'result.zip');
+    await fs.promises.writeFile(resultPath, resultBuffer);
+
+    // Extract and verify
+    const { ArchiveExtractor } = await import('../src/executor/archive-extractor.js');
+    const extractor = new ArchiveExtractor();
+    const resultDir = path.join(tempDir, 'result');
+    await extractor.extract(resultPath, resultDir);
+
     const modifiedContent = await fs.promises.readFile(
-      path.join(exportDir, 'original.txt'),
+      path.join(resultDir, 'original.txt'),
       'utf-8',
     );
     expect(modifiedContent).toBe('modified content');
 
-    const newContent = await fs.promises.readFile(path.join(exportDir, 'new-file.txt'), 'utf-8');
+    const newContent = await fs.promises.readFile(path.join(resultDir, 'new-file.txt'), 'utf-8');
     expect(newContent).toBe('new file content');
   });
 });

@@ -12,7 +12,6 @@ import archiver from 'archiver';
 import type { ArchiveCreateResult } from '../types.js';
 
 export interface ArchiveCreatorConfig {
-  /** Directory to store archive files */
   tempDir?: string;
 }
 
@@ -35,21 +34,17 @@ export class ArchiveCreator {
     const archive = archiver('zip', { zlib: { level: 6 } });
 
     archive.pipe(writeStream);
-
-    // Add directory contents, preserving structure
     archive.directory(sourceDir, false);
-
     await archive.finalize();
 
-    // Wait for write stream to finish
     await new Promise<void>((resolve, reject) => {
       writeStream.on('finish', resolve);
       writeStream.on('error', reject);
     });
 
-    // Calculate checksum by reading the file
     const checksum = await this.calculateChecksum(archivePath);
     const stats = await fs.promises.stat(archivePath);
+    const base64 = await this.readAsBase64(archivePath);
 
     this.archives.set(delegationId, archivePath);
 
@@ -57,6 +52,7 @@ export class ArchiveCreator {
       archivePath,
       checksum,
       sizeBytes: stats.size,
+      base64,
     };
   }
 
@@ -76,7 +72,7 @@ export class ArchiveCreator {
       try {
         await fs.promises.unlink(archivePath);
       } catch {
-        // Ignore if already deleted
+        // Ignore
       }
       this.archives.delete(delegationId);
     }
@@ -99,5 +95,10 @@ export class ArchiveCreator {
       stream.on('end', () => resolve(hash.digest('hex')));
       stream.on('error', reject);
     });
+  }
+
+  private async readAsBase64(filePath: string): Promise<string> {
+    const buffer = await fs.promises.readFile(filePath);
+    return buffer.toString('base64');
   }
 }

@@ -51,7 +51,6 @@ export {
   // Utilities
   WorkspaceManager,
   type WorkspaceValidation,
-  DelegatorClient,
 } from './executor/index.js';
 
 // ============================================

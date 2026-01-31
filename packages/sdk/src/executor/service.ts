@@ -3,6 +3,7 @@
  */
 
 import { randomUUID } from 'node:crypto';
+import { EventEmitter } from 'node:events';
 import type { Message } from '@a2a-js/sdk';
 import {
   DefaultExecutionEventBus,
@@ -13,32 +14,33 @@ import {
   type InviteMessage,
   type StartMessage,
   type AcceptMessage,
-  type DoneMessage,
   type ErrorMessage,
   type AwcpMessage,
   type TaskSpec,
   type ExecutorConstraints,
   type ExecutorTransportAdapter,
+  type TaskEvent,
+  type TaskStatusEvent,
+  type TaskDoneEvent,
+  type TaskErrorEvent,
   PROTOCOL_VERSION,
   ErrorCodes,
   AwcpError,
 } from '@awcp/core';
 import { type ExecutorConfig, type ResolvedExecutorConfig, resolveExecutorConfig } from './config.js';
 import { WorkspaceManager } from './workspace-manager.js';
-import { DelegatorClient } from './delegator-client.js';
 
 interface PendingInvitation {
   invite: InviteMessage;
-  delegatorUrl: string;
   receivedAt: Date;
 }
 
 interface ActiveDelegation {
   id: string;
-  delegatorUrl: string;
   workPath: string;
   task: TaskSpec;
   startedAt: Date;
+  eventEmitter: EventEmitter;
 }
 
 export interface ExecutorServiceStatus {
@@ -61,7 +63,6 @@ export class ExecutorService {
   private config: ResolvedExecutorConfig;
   private transport: ExecutorTransportAdapter;
   private workspace: WorkspaceManager;
-  private delegatorClient: DelegatorClient;
   private pendingInvitations = new Map<string, PendingInvitation>();
   private activeDelegations = new Map<string, ActiveDelegation>();
 
@@ -70,18 +71,14 @@ export class ExecutorService {
     this.config = resolveExecutorConfig(options.config);
     this.transport = this.config.transport;
     this.workspace = new WorkspaceManager(this.config.workDir);
-    this.delegatorClient = new DelegatorClient();
   }
 
-  async handleMessage(
-    message: AwcpMessage,
-    delegatorUrl: string
-  ): Promise<AwcpMessage | null> {
+  async handleMessage(message: AwcpMessage): Promise<AwcpMessage | null> {
     switch (message.type) {
       case 'INVITE':
-        return this.handleInvite(message, delegatorUrl);
+        return this.handleInvite(message);
       case 'START':
-        await this.handleStart(message, delegatorUrl);
+        this.handleStart(message);
         return null;
       case 'ERROR':
         await this.handleError(message);
@@ -91,10 +88,32 @@ export class ExecutorService {
     }
   }
 
-  private async handleInvite(
-    invite: InviteMessage,
-    delegatorUrl: string
-  ): Promise<AcceptMessage | ErrorMessage> {
+  /**
+   * Subscribe to task events via SSE
+   */
+  subscribeTask(delegationId: string, callback: (event: TaskEvent) => void): () => void {
+    const delegation = this.activeDelegations.get(delegationId);
+    if (!delegation) {
+      const errorEvent: TaskErrorEvent = {
+        delegationId,
+        type: 'error',
+        timestamp: new Date().toISOString(),
+        code: 'NOT_FOUND',
+        message: 'Delegation not found',
+      };
+      callback(errorEvent);
+      return () => {};
+    }
+
+    const handler = (event: TaskEvent) => callback(event);
+    delegation.eventEmitter.on('event', handler);
+
+    return () => {
+      delegation.eventEmitter.off('event', handler);
+    };
+  }
+
+  private async handleInvite(invite: InviteMessage): Promise<AcceptMessage | ErrorMessage> {
     const { delegationId } = invite;
 
     if (this.activeDelegations.size >= this.config.policy.maxConcurrentDelegations) {
@@ -149,7 +168,6 @@ export class ExecutorService {
     } else if (!this.config.policy.autoAccept) {
       this.pendingInvitations.set(delegationId, {
         invite,
-        delegatorUrl,
         receivedAt: new Date(),
       });
       return this.createErrorMessage(
@@ -167,7 +185,7 @@ export class ExecutorService {
       await this.workspace.release(workPath);
       return this.createErrorMessage(
         delegationId,
-        ErrorCodes.MOUNTPOINT_DENIED,
+        ErrorCodes.WORKDIR_DENIED,
         validation.reason ?? 'Workspace validation failed',
         'Check workDir configuration'
       );
@@ -175,7 +193,6 @@ export class ExecutorService {
 
     this.pendingInvitations.set(delegationId, {
       invite,
-      delegatorUrl,
       receivedAt: new Date(),
     });
 
@@ -189,14 +206,14 @@ export class ExecutorService {
       version: PROTOCOL_VERSION,
       type: 'ACCEPT',
       delegationId,
-      executorMount: { mountPoint: workPath },
+      executorWorkDir: { path: workPath },
       executorConstraints,
     };
 
     return acceptMessage;
   }
 
-  private async handleStart(start: StartMessage, delegatorUrl: string): Promise<void> {
+  private handleStart(start: StartMessage): void {
     const { delegationId } = start;
 
     const pending = this.pendingInvitations.get(delegationId);
@@ -208,61 +225,87 @@ export class ExecutorService {
     const workPath = this.workspace.allocate(delegationId);
     this.pendingInvitations.delete(delegationId);
 
+    const eventEmitter = new EventEmitter();
+
+    this.activeDelegations.set(delegationId, {
+      id: delegationId,
+      workPath,
+      task: pending.invite.task,
+      startedAt: new Date(),
+      eventEmitter,
+    });
+
+    this.executeTask(delegationId, start, workPath, pending.invite.task, eventEmitter);
+  }
+
+  private async executeTask(
+    delegationId: string,
+    start: StartMessage,
+    workPath: string,
+    task: TaskSpec,
+    eventEmitter: EventEmitter,
+  ): Promise<void> {
     try {
       await this.workspace.prepare(workPath);
 
       const actualPath = await this.transport.setup({
         delegationId,
-        mountInfo: start.mount,
+        workDirInfo: start.workDir,
         workDir: workPath,
-      });
-
-      this.activeDelegations.set(delegationId, {
-        id: delegationId,
-        delegatorUrl,
-        workPath: actualPath,
-        task: pending.invite.task,
-        startedAt: new Date(),
       });
 
       this.config.hooks.onTaskStart?.(delegationId, actualPath);
 
-      const result = await this.executeViaA2A(actualPath, pending.invite.task);
-
-      await this.transport.teardown({ delegationId, workDir: actualPath });
-
-      const doneMessage: DoneMessage = {
-        version: PROTOCOL_VERSION,
-        type: 'DONE',
+      const statusEvent: TaskStatusEvent = {
         delegationId,
-        finalSummary: result.summary,
+        type: 'status',
+        timestamp: new Date().toISOString(),
+        status: 'running',
+        message: 'Task execution started',
+      };
+      eventEmitter.emit('event', statusEvent);
+
+      const result = await this.executeViaA2A(actualPath, task);
+
+      const teardownResult = await this.transport.teardown({ delegationId, workDir: actualPath });
+
+      const doneEvent: TaskDoneEvent = {
+        delegationId,
+        type: 'done',
+        timestamp: new Date().toISOString(),
+        summary: result.summary,
         highlights: result.highlights,
+        resultBase64: teardownResult.resultBase64,
       };
 
-      await this.delegatorClient.send(delegatorUrl, doneMessage);
+      eventEmitter.emit('event', doneEvent);
       this.config.hooks.onTaskComplete?.(delegationId, result.summary);
 
       this.activeDelegations.delete(delegationId);
       await this.workspace.release(actualPath);
     } catch (error) {
-      await this.transport.teardown({ delegationId, workDir: workPath }).catch(() => {});
-      this.activeDelegations.delete(delegationId);
-      await this.workspace.release(workPath);
+      const delegation = this.activeDelegations.get(delegationId);
+      if (delegation) {
+        await this.transport.teardown({ delegationId, workDir: delegation.workPath }).catch(() => {});
+        await this.workspace.release(delegation.workPath);
+      }
 
-      const errorMessage: ErrorMessage = {
-        version: PROTOCOL_VERSION,
-        type: 'ERROR',
+      const errorEvent: TaskErrorEvent = {
         delegationId,
+        type: 'error',
+        timestamp: new Date().toISOString(),
         code: ErrorCodes.TASK_FAILED,
         message: error instanceof Error ? error.message : String(error),
         hint: 'Check task requirements and try again',
       };
 
-      await this.delegatorClient.send(delegatorUrl, errorMessage).catch(console.error);
+      eventEmitter.emit('event', errorEvent);
       this.config.hooks.onError?.(
         delegationId,
         error instanceof Error ? error : new Error(String(error))
       );
+
+      this.activeDelegations.delete(delegationId);
     }
   }
 
@@ -288,6 +331,16 @@ export class ExecutorService {
     const delegation = this.activeDelegations.get(delegationId);
     if (delegation) {
       await this.transport.teardown({ delegationId, workDir: delegation.workPath }).catch(() => {});
+      
+      const errorEvent: TaskErrorEvent = {
+        delegationId,
+        type: 'error',
+        timestamp: new Date().toISOString(),
+        code: ErrorCodes.CANCELLED,
+        message: 'Delegation cancelled',
+      };
+      delegation.eventEmitter.emit('event', errorEvent);
+      
       this.activeDelegations.delete(delegationId);
       await this.workspace.release(delegation.workPath);
       this.config.hooks.onError?.(

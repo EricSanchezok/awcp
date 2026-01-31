@@ -2,7 +2,7 @@
  * @awcp/transport-archive
  *
  * Archive-based transport for AWCP workspace delegation.
- * Uses HTTP file transfer instead of SSHFS mount.
+ * Uses base64-encoded ZIP archives transmitted inline in protocol messages.
  */
 
 export { ArchiveTransport } from './archive-transport.js';
@@ -12,8 +12,8 @@ export type {
   ArchiveDelegatorConfig,
   ArchiveExecutorConfig,
   ArchiveCreateResult,
-  ArchiveMountInfo,
+  ArchiveWorkDirInfo,
 } from './types.js';
 
-export { ArchiveCreator, ArchiveServer } from './delegator/index.js';
-export { ArchiveClient, ArchiveExtractor } from './executor/index.js';
+export { ArchiveCreator } from './delegator/index.js';
+export { ArchiveExtractor } from './executor/index.js';

@@ -40,8 +40,6 @@ interface ParsedArgs {
 
   // Archive transport
   tempDir?: string;
-  publicBaseUrl?: string;
-  archiveServerPort?: number;
 
   // SSHFS transport
   sshCaKey?: string;
@@ -127,14 +125,6 @@ function parseArgs(args: string[]): ParsedArgs | null {
         result.tempDir = nextArg;
         i++;
         break;
-      case '--public-base-url':
-        result.publicBaseUrl = nextArg;
-        i++;
-        break;
-      case '--archive-server-port':
-        result.archiveServerPort = parseInt(nextArg, 10);
-        i++;
-        break;
 
       // SSHFS transport
       case '--ssh-ca-key':
@@ -202,8 +192,6 @@ async function main() {
       defaultTtl: parsed.defaultTtl,
       defaultAccessMode: parsed.defaultAccessMode,
       tempDir: parsed.tempDir,
-      publicBaseUrl: parsed.publicBaseUrl,
-      archiveServerPort: parsed.archiveServerPort,
       sshCaKey: parsed.sshCaKey,
       sshHost: parsed.sshHost,
       sshPort: parsed.sshPort,
@@ -278,8 +266,6 @@ Delegation Defaults:
 
 Archive Transport Options:
   --temp-dir DIR             Temp directory for archives (default: ~/.awcp/temp)
-  --public-base-url URL      Public URL for cloud/proxy environments
-  --archive-server-port N    Port for archive server (default: auto)
 
 SSHFS Transport Options:
   --ssh-ca-key PATH          CA private key path (required for SSHFS)
@@ -306,9 +292,6 @@ Examples:
 
   # Use SSHFS transport
   awcp-mcp --peers http://localhost:4001 --transport sshfs --ssh-ca-key ~/.awcp/ca
-
-  # Cloud environment with public URL
-  awcp-mcp --peers http://executor.example.com --public-base-url https://delegator.example.com
 
 Claude Desktop config (claude_desktop_config.json):
   {

@@ -70,8 +70,6 @@ async function main() {
       transport: new ArchiveTransport({
         executor: {
           tempDir,
-          downloadTimeout: 30000,
-          uploadTimeout: 30000,
         },
       }),
       policy: {
@@ -93,12 +91,11 @@ async function main() {
   // AWCP endpoint
   app.post('/awcp', async (req, res) => {
     const message = req.body as AwcpMessage;
-    const delegatorUrl = req.headers['x-awcp-callback-url'] as string;
 
     console.log(`[Executor] Received ${message.type}: ${message.delegationId}`);
 
     try {
-      const response = await executorService.handleMessage(message, delegatorUrl);
+      const response = await executorService.handleMessage(message);
       if (response) {
         res.json(response);
       } else {

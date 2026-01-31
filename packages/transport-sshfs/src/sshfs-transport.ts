@@ -10,8 +10,9 @@ import type {
   TransportPrepareResult,
   TransportSetupParams,
   TransportTeardownParams,
+  TransportTeardownResult,
   DependencyCheckResult,
-  SshfsMountInfo,
+  SshfsWorkDirInfo,
 } from '@awcp/core';
 import { CredentialManager } from './delegator/credential-manager.js';
 import { SshfsMountClient } from './executor/sshfs-client.js';
@@ -50,14 +51,14 @@ export class SshfsTransport implements TransportAdapter {
       ttlSeconds,
     );
 
-    const mountInfo: SshfsMountInfo = {
+    const workDirInfo: SshfsWorkDirInfo = {
       transport: 'sshfs',
       endpoint,
       exportLocator: exportPath,
       credential,
     };
 
-    return { mountInfo };
+    return { workDirInfo };
   }
 
   async cleanup(delegationId: string): Promise<void> {
@@ -80,26 +81,27 @@ export class SshfsTransport implements TransportAdapter {
 
   async setup(params: TransportSetupParams): Promise<string> {
     this.ensureMountClient();
-    const { mountInfo, workDir } = params;
+    const { workDirInfo, workDir } = params;
 
-    if (mountInfo.transport !== 'sshfs') {
-      throw new Error(`SshfsTransport: unexpected transport type: ${mountInfo.transport}`);
+    if (workDirInfo.transport !== 'sshfs') {
+      throw new Error(`SshfsTransport: unexpected transport type: ${workDirInfo.transport}`);
     }
 
-    const info = mountInfo as SshfsMountInfo;
+    const info = workDirInfo as SshfsWorkDirInfo;
     await this.mountClient!.mount({
       endpoint: info.endpoint,
       exportLocator: info.exportLocator,
       credential: info.credential,
       mountPoint: workDir,
-      options: info.mountOptions,
+      options: info.options,
     });
 
     return workDir;
   }
 
-  async teardown(params: TransportTeardownParams): Promise<void> {
+  async teardown(params: TransportTeardownParams): Promise<TransportTeardownResult> {
     await this.mountClient?.unmount(params.workDir);
+    return {};
   }
 
   // ========== Helpers ==========

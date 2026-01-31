@@ -2,7 +2,7 @@
  * SSHFS Transport Configuration Types
  */
 
-export { SshfsMountInfo, SshCredential, SshEndpoint } from '@awcp/core';
+export { SshfsWorkDirInfo, SshCredential, SshEndpoint } from '@awcp/core';
 
 /**
  * Delegator-side configuration for SSHFS transport

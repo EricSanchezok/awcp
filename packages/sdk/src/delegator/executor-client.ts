@@ -2,23 +2,15 @@
  * HTTP Client for sending AWCP messages to Executor
  */
 
-import type { AwcpMessage, AcceptMessage, ErrorMessage } from '@awcp/core';
+import type { AwcpMessage, AcceptMessage, ErrorMessage, TaskEvent } from '@awcp/core';
 
-/**
- * Response from Executor for INVITE message
- */
 export type InviteResponse = AcceptMessage | ErrorMessage;
 
-/**
- * Client for sending AWCP messages to Executor daemon
- */
 export class ExecutorClient {
   private timeout: number;
-  private callbackUrl: string;
 
-  constructor(options: { timeout?: number; callbackUrl: string }) {
-    this.timeout = options.timeout ?? 30000;
-    this.callbackUrl = options.callbackUrl;
+  constructor(options?: { timeout?: number }) {
+    this.timeout = options?.timeout ?? 30000;
   }
 
   /**
@@ -38,7 +30,62 @@ export class ExecutorClient {
   }
 
   /**
-   * Request Executor to cancel a delegation (waits for unmount to complete)
+   * Subscribe to task events via SSE
+   */
+  async *subscribeTask(executorUrl: string, delegationId: string): AsyncIterable<TaskEvent> {
+    const baseUrl = executorUrl.replace(/\/$/, '').replace(/\/awcp$/, '');
+    const url = `${baseUrl}/awcp/tasks/${delegationId}/events`;
+
+    const response = await fetch(url, {
+      headers: { Accept: 'text/event-stream' },
+    });
+
+    if (!response.ok) {
+      throw new Error(`SSE connection failed: ${response.status} ${response.statusText}`);
+    }
+
+    if (!response.body) {
+      throw new Error('SSE connection failed: no response body');
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() ?? '';
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const data = line.slice(6);
+            if (data) {
+              try {
+                const event = JSON.parse(data) as TaskEvent;
+                yield event;
+
+                if (event.type === 'done' || event.type === 'error') {
+                  return;
+                }
+              } catch {
+                // Ignore parse errors
+              }
+            }
+          }
+        }
+      }
+    } finally {
+      reader.releaseLock();
+    }
+  }
+
+  /**
+   * Request Executor to cancel a delegation
    */
   async sendCancel(executorUrl: string, delegationId: string): Promise<void> {
     const cancelUrl = executorUrl.replace(/\/$/, '') + `/cancel/${delegationId}`;
@@ -61,9 +108,6 @@ export class ExecutorClient {
     }
   }
 
-  /**
-   * Internal send method
-   */
   private async send(executorUrl: string, message: AwcpMessage): Promise<Response> {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), this.timeout);
@@ -71,10 +115,7 @@ export class ExecutorClient {
     try {
       const response = await fetch(executorUrl, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-AWCP-Callback-URL': this.callbackUrl,
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(message),
         signal: controller.signal,
       });

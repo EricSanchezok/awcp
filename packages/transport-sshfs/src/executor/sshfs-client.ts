@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process';
 import { writeFile, unlink, mkdir, stat } from 'node:fs/promises';
 import { join } from 'node:path';
-import { MountFailedError, DependencyMissingError, type SshCredential } from '@awcp/core';
+import { SetupFailedError, DependencyMissingError, type SshCredential } from '@awcp/core';
 import type { SshfsMountConfig, MountParams, ActiveMount } from '../types.js';
 
 export const DEFAULT_TEMP_KEY_DIR = '/tmp/awcp/client-keys';
@@ -246,14 +246,14 @@ export class SshfsMountClient {
         } catch {
           // Ignore - mount may not exist
         }
-        reject(new MountFailedError(`Mount timeout after ${timeout}ms`));
+        reject(new SetupFailedError(`Mount timeout after ${timeout}ms`));
       }, timeout);
 
       proc.on('close', async (code) => {
         clearTimeout(timer);
         
         if (code !== 0) {
-          reject(new MountFailedError(stderr || `sshfs exited with code ${code}`));
+          reject(new SetupFailedError(stderr || `sshfs exited with code ${code}`));
           return;
         }
 
@@ -267,16 +267,16 @@ export class SshfsMountClient {
             // Different device = mounted successfully
             resolve();
           } else {
-            reject(new MountFailedError('SSHFS exited but mount not detected'));
+            reject(new SetupFailedError('SSHFS exited but mount not detected'));
           }
         } catch (error) {
-          reject(new MountFailedError(`Mount verification failed: ${error}`));
+          reject(new SetupFailedError(`Mount verification failed: ${error}`));
         }
       });
 
       proc.on('error', (error) => {
         clearTimeout(timer);
-        reject(new MountFailedError(error.message));
+        reject(new SetupFailedError(error.message));
       });
     });
   }

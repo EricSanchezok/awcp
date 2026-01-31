@@ -13,40 +13,12 @@ import { ExecutorService } from '../../executor/service.js';
  * Options for the AWCP Executor Express handler
  */
 export interface ExecutorHandlerOptions {
-  /**
-   * A2A agent executor
-   *
-   * This is the executor that will be called to execute tasks.
-   * It should be the same executor used by the A2A agent.
-   */
   executor: AgentExecutor;
-
-  /**
-   * AWCP Executor configuration
-   */
   config: ExecutorConfig;
 }
 
 /**
  * Create an Express router that handles AWCP messages (Executor side)
- *
- * @example
- * ```typescript
- * import express from 'express';
- * import { executorHandler } from '@awcp/sdk/server/express';
- *
- * const app = express();
- *
- * // ... existing A2A setup ...
- *
- * // Enable AWCP
- * app.use('/awcp', executorHandler({
- *   executor: myExecutor,
- *   config: {
- *     mount: { root: '/tmp/awcp/mounts' },
- *   },
- * }));
- * ```
  */
 export function executorHandler(options: ExecutorHandlerOptions): Router {
   const router = Router();
@@ -55,43 +27,25 @@ export function executorHandler(options: ExecutorHandlerOptions): Router {
     config: options.config,
   });
 
-  // Parse JSON bodies
   router.use(json());
 
   /**
    * POST / - Receive AWCP messages from Delegator
-   *
-   * The Delegator sends INVITE and START messages to this endpoint.
-   * The Delegator URL for sending responses is provided in the
-   * X-AWCP-Callback-URL header.
    */
   router.post('/', async (req, res) => {
     try {
       const message = req.body;
-      const delegatorUrl = req.headers['x-awcp-callback-url'] as string | undefined;
 
-      if (!delegatorUrl && message.type !== 'ERROR') {
-        res.status(400).json({
-          error: 'Missing X-AWCP-Callback-URL header',
-        });
-        return;
-      }
-
-      // For START messages, respond immediately and handle async
       if (message.type === 'START') {
         res.json({ ok: true });
-        // Handle START asynchronously (mount + execute task)
-        service.handleMessage(message, delegatorUrl ?? '').catch((error) => {
+        service.handleMessage(message).catch((error) => {
           console.error('[AWCP Executor] Error handling START:', error);
         });
         return;
       }
 
-      // Other messages (INVITE, ERROR) are handled synchronously
-      const response = await service.handleMessage(message, delegatorUrl ?? '');
-
+      const response = await service.handleMessage(message);
       if (response) {
-        // INVITE returns ACCEPT/ERROR synchronously
         res.json(response);
       } else {
         res.json({ ok: true });
@@ -102,6 +56,31 @@ export function executorHandler(options: ExecutorHandlerOptions): Router {
         error: error instanceof Error ? error.message : 'Internal error',
       });
     }
+  });
+
+  /**
+   * GET /tasks/:taskId/events - SSE endpoint for task events
+   */
+  router.get('/tasks/:taskId/events', (req, res) => {
+    const { taskId } = req.params;
+
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no');
+    res.flushHeaders();
+
+    const unsubscribe = service.subscribeTask(taskId, (event) => {
+      res.write(`data: ${JSON.stringify(event)}\n\n`);
+
+      if (event.type === 'done' || event.type === 'error') {
+        res.end();
+      }
+    });
+
+    req.on('close', () => {
+      unsubscribe();
+    });
   });
 
   /**
