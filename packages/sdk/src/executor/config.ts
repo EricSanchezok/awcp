@@ -1,102 +1,36 @@
 /**
  * AWCP Executor Configuration
- *
- * Configuration for enabling AWCP support in an A2A agent.
  */
 
-import type { InviteMessage, SandboxProfile, AccessMode } from '@awcp/core';
+import type { InviteMessage, SandboxProfile, AccessMode, ExecutorTransportAdapter } from '@awcp/core';
 
-/**
- * Mount configuration
- */
-export interface MountConfig {
-  /** Root directory for mount points, e.g., '/tmp/awcp/mounts' */
-  root: string;
-}
-
-/**
- * Policy constraints for accepting delegations
- */
 export interface PolicyConstraints {
-  /** Max concurrent delegations (default: 5) */
   maxConcurrentDelegations?: number;
-  /** Max TTL in seconds to accept (default: 3600) */
   maxTtlSeconds?: number;
-  /** Allowed access modes (default: ['ro', 'rw']) */
   allowedAccessModes?: AccessMode[];
-  /** Auto-accept INVITEs without confirmation (default: true) */
   autoAccept?: boolean;
 }
 
-/**
- * Lifecycle hooks for AWCP events
- */
 export interface ExecutorHooks {
-  /** Called when INVITE received. Return false to decline. */
   onInvite?: (invite: InviteMessage) => Promise<boolean>;
-  /** Called when task execution starts */
-  onTaskStart?: (delegationId: string, mountPoint: string) => void;
-  /** Called when task completes successfully */
+  onTaskStart?: (delegationId: string, workPath: string) => void;
   onTaskComplete?: (delegationId: string, summary: string) => void;
-  /** Called on error */
   onError?: (delegationId: string, error: Error) => void;
 }
 
-/**
- * AWCP Executor Configuration
- *
- * @example
- * ```typescript
- * const awcpConfig: ExecutorConfig = {
- *   mount: {
- *     root: '/tmp/awcp/mounts',
- *   },
- *   sandbox: {
- *     cwdOnly: true,
- *     allowNetwork: true,
- *     allowExec: true,
- *   },
- *   policy: {
- *     maxConcurrentDelegations: 3,
- *     autoAccept: true,
- *   },
- * };
- * ```
- */
 export interface ExecutorConfig {
-  /**
-   * Mount configuration (required)
-   *
-   * Specifies where delegator workspaces will be mounted.
-   */
-  mount: MountConfig;
-
-  /**
-   * Sandbox profile (optional)
-   *
-   * Capability declaration sent in ACCEPT message to inform Delegator
-   * about this agent's execution constraints.
-   */
+  /** Root directory for workspaces */
+  workDir: string;
+  /** Transport adapter */
+  transport: ExecutorTransportAdapter;
+  /** Sandbox profile */
   sandbox?: SandboxProfile;
-
-  /**
-   * Policy constraints (optional)
-   *
-   * Rules for accepting or rejecting delegation requests.
-   */
+  /** Policy constraints */
   policy?: PolicyConstraints;
-
-  /**
-   * Lifecycle hooks (optional)
-   *
-   * Callbacks for various AWCP lifecycle events.
-   */
+  /** Lifecycle hooks */
   hooks?: ExecutorHooks;
 }
 
-/**
- * Default configuration values
- */
 export const DEFAULT_EXECUTOR_CONFIG = {
   policy: {
     maxConcurrentDelegations: 5,
@@ -111,9 +45,6 @@ export const DEFAULT_EXECUTOR_CONFIG = {
   },
 } as const;
 
-/**
- * Resolved policy with all fields required
- */
 export interface ResolvedPolicyConstraints {
   maxConcurrentDelegations: number;
   maxTtlSeconds: number;
@@ -121,22 +52,18 @@ export interface ResolvedPolicyConstraints {
   autoAccept: boolean;
 }
 
-/**
- * Resolved configuration with all defaults applied
- */
 export interface ResolvedExecutorConfig {
-  mount: MountConfig;
+  workDir: string;
+  transport: ExecutorTransportAdapter;
   sandbox: SandboxProfile;
   policy: ResolvedPolicyConstraints;
   hooks: ExecutorHooks;
 }
 
-/**
- * Merge user config with defaults
- */
 export function resolveExecutorConfig(config: ExecutorConfig): ResolvedExecutorConfig {
   return {
-    mount: config.mount,
+    workDir: config.workDir,
+    transport: config.transport,
     sandbox: config.sandbox ?? { ...DEFAULT_EXECUTOR_CONFIG.sandbox },
     policy: {
       maxConcurrentDelegations: config.policy?.maxConcurrentDelegations ?? DEFAULT_EXECUTOR_CONFIG.policy.maxConcurrentDelegations,

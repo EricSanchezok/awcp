@@ -18,10 +18,10 @@ const STATE_TRANSITIONS: Record<DelegationState, DelegationState[]> = {
   accepted: ['started', 'error', 'cancelled', 'expired'],
   started: ['running', 'error', 'cancelled'],
   running: ['completed', 'error', 'cancelled', 'expired'],
-  completed: [], // Terminal state
-  error: [], // Terminal state
-  cancelled: [], // Terminal state
-  expired: [], // Terminal state
+  completed: [],
+  error: [],
+  cancelled: [],
+  expired: [],
 };
 
 /**
@@ -48,7 +48,7 @@ export type DelegationEvent =
   | { type: 'SEND_INVITE'; message: InviteMessage }
   | { type: 'RECEIVE_ACCEPT'; message: AcceptMessage }
   | { type: 'SEND_START'; message: StartMessage }
-  | { type: 'MOUNT_COMPLETE' }
+  | { type: 'SETUP_COMPLETE' }
   | { type: 'RECEIVE_DONE'; message: DoneMessage }
   | { type: 'RECEIVE_ERROR'; message: ErrorMessage }
   | { type: 'SEND_ERROR'; message: ErrorMessage }
@@ -66,8 +66,6 @@ export interface TransitionResult {
 
 /**
  * Delegation state machine
- * 
- * Manages state transitions for a single delegation
  */
 export class DelegationStateMachine {
   private state: DelegationState = 'created';
@@ -78,23 +76,14 @@ export class DelegationStateMachine {
     }
   }
 
-  /**
-   * Get current state
-   */
   getState(): DelegationState {
     return this.state;
   }
 
-  /**
-   * Check if delegation is in a terminal state
-   */
   isTerminal(): boolean {
     return isTerminalState(this.state);
   }
 
-  /**
-   * Process an event and transition state
-   */
   transition(event: DelegationEvent): TransitionResult {
     const targetState = this.getTargetState(event);
     
@@ -121,9 +110,6 @@ export class DelegationStateMachine {
     };
   }
 
-  /**
-   * Force state (use with caution, mainly for restoration)
-   */
   forceState(state: DelegationState): void {
     this.state = state;
   }
@@ -139,7 +125,7 @@ export class DelegationStateMachine {
       case 'SEND_START':
         return this.state === 'accepted' ? 'started' : null;
       
-      case 'MOUNT_COMPLETE':
+      case 'SETUP_COMPLETE':
         return this.state === 'started' ? 'running' : null;
       
       case 'RECEIVE_DONE':
@@ -153,7 +139,6 @@ export class DelegationStateMachine {
         return isTerminalState(this.state) ? null : 'cancelled';
       
       case 'EXPIRE':
-        // Can expire from invited, accepted, or running states
         return ['invited', 'accepted', 'running'].includes(this.state)
           ? 'expired'
           : null;
@@ -198,7 +183,7 @@ export function applyMessageToDelegation(
 
   switch (message.type) {
     case 'ACCEPT':
-      updated.executorMount = message.executorMount;
+      updated.executorWorkDir = message.executorWorkDir;
       updated.executorConstraints = message.executorConstraints;
       break;
     

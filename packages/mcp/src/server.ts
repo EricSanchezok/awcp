@@ -15,7 +15,7 @@ import type { Delegation } from '@awcp/core';
 
 import {
   delegateSchema,
-  delegateDescription,
+  generateDelegateDescription,
   type DelegateParams,
 } from './tools/delegate.js';
 import {
@@ -28,6 +28,7 @@ import {
   delegateCancelDescription,
   type DelegateCancelParams,
 } from './tools/delegate-cancel.js';
+import { type PeersContext } from './peer-discovery.js';
 
 export interface AwcpMcpServerOptions {
   /** URL of the Delegator Daemon (default: http://localhost:3100) */
@@ -36,6 +37,8 @@ export interface AwcpMcpServerOptions {
   timeout?: number;
   /** Default TTL for delegations in seconds (default: 3600) */
   defaultTtl?: number;
+  /** Discovered peers context (from --peers flag) */
+  peers?: PeersContext;
 }
 
 /**
@@ -58,6 +61,7 @@ export function createAwcpMcpServer(options: AwcpMcpServerOptions = {}) {
   const daemonUrl = options.daemonUrl ?? 'http://localhost:3100';
   const timeout = options.timeout ?? 30000;
   const defaultTtl = options.defaultTtl ?? 3600;
+  const peers = options.peers;
 
   const client = new DelegatorDaemonClient(daemonUrl, { timeout });
 
@@ -71,7 +75,7 @@ export function createAwcpMcpServer(options: AwcpMcpServerOptions = {}) {
   // ============================================
   server.tool(
     'delegate',
-    delegateDescription,
+    generateDelegateDescription(peers),
     delegateSchema.shape,
     async (params: DelegateParams) => {
       const {

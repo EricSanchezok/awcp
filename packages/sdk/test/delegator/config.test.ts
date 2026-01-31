@@ -7,24 +7,24 @@
 import { describe, it, expect } from 'vitest';
 import { resolveDelegatorConfig, DEFAULT_DELEGATOR_CONFIG } from '../../src/delegator/config.js';
 import type { DelegatorConfig } from '../../src/delegator/config.js';
+import type { DelegatorTransportAdapter } from '@awcp/core';
+
+// Mock transport adapter
+const mockTransport: DelegatorTransportAdapter = {
+  type: 'sshfs',
+  prepare: async () => ({ workDirInfo: { transport: 'sshfs' } }),
+  cleanup: async () => {},
+};
 
 describe('resolveDelegatorConfig', () => {
   const minimalConfig: DelegatorConfig = {
     export: {
       baseDir: '/custom/exports',
     },
-    ssh: {
-      host: 'myhost.example.com',
-      user: 'myuser',
-    },
+    transport: mockTransport,
   };
 
   describe('default values', () => {
-    it('should apply default SSH port', () => {
-      const resolved = resolveDelegatorConfig(minimalConfig);
-      expect(resolved.ssh.port).toBe(22);
-    });
-
     it('should apply default export strategy', () => {
       const resolved = resolveDelegatorConfig(minimalConfig);
       expect(resolved.export.strategy).toBe('symlink');
@@ -42,26 +42,14 @@ describe('resolveDelegatorConfig', () => {
       expect(resolved.defaults.ttlSeconds).toBe(3600);
       expect(resolved.defaults.accessMode).toBe('rw');
     });
+
+    it('should preserve transport adapter', () => {
+      const resolved = resolveDelegatorConfig(minimalConfig);
+      expect(resolved.transport).toBe(mockTransport);
+    });
   });
 
   describe('custom values', () => {
-    it('should preserve custom SSH settings', () => {
-      const config: DelegatorConfig = {
-        ...minimalConfig,
-        ssh: {
-          ...minimalConfig.ssh,
-          port: 2222,
-          keyDir: '/custom/keys',
-        },
-      };
-
-      const resolved = resolveDelegatorConfig(config);
-      expect(resolved.ssh.host).toBe('myhost.example.com');
-      expect(resolved.ssh.port).toBe(2222);
-      expect(resolved.ssh.user).toBe('myuser');
-      expect(resolved.ssh.keyDir).toBe('/custom/keys');
-    });
-
     it('should preserve custom admission limits', () => {
       const config: DelegatorConfig = {
         ...minimalConfig,
@@ -142,7 +130,6 @@ describe('resolveDelegatorConfig', () => {
 
 describe('DEFAULT_DELEGATOR_CONFIG', () => {
   it('should have sensible default values', () => {
-    expect(DEFAULT_DELEGATOR_CONFIG.ssh.port).toBe(22);
     expect(DEFAULT_DELEGATOR_CONFIG.export.strategy).toBe('symlink');
     expect(DEFAULT_DELEGATOR_CONFIG.admission.maxTotalBytes).toBe(100 * 1024 * 1024); // 100MB
     expect(DEFAULT_DELEGATOR_CONFIG.admission.maxFileCount).toBe(10000);

@@ -1,0 +1,22 @@
+Retrieve output from a background delegation.
+
+## Parameters
+- **delegation_id** (required): Delegation ID from the background delegation launch
+- **block** (optional): Wait for completion if still running
+- **timeout** (optional): Maximum seconds to wait (default: 60)
+
+## Usage
+After launching a background delegation:
+```
+delegate(background: true, ...) → "Delegation ID: dlg_abc123..."
+```
+
+Check or retrieve results:
+```
+delegate_output(delegation_id: "dlg_abc123")
+```
+
+Wait for completion:
+```
+delegate_output(delegation_id: "dlg_abc123", block: true, timeout: 120)
+```

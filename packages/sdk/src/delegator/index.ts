@@ -8,7 +8,6 @@ export {
 export {
   type DelegatorConfig,
   type ExportConfig,
-  type SshConfig,
   type AdmissionConfig as DelegatorAdmissionConfig,
   type DelegationDefaults,
   type DelegatorHooks,
@@ -17,7 +16,7 @@ export {
   resolveDelegatorConfig,
 } from './config.js';
 
-// Daemon mode (for running as independent process)
+// Daemon mode
 export {
   startDelegatorDaemon,
   type DaemonConfig,
@@ -30,7 +29,7 @@ export {
   type ListDelegationsResponse,
 } from './bin/client.js';
 
-// Utilities (can be used independently)
+// Utilities
 export { AdmissionController, type AdmissionConfig, type AdmissionResult, type WorkspaceStats } from './admission.js';
-export { ExportViewManager } from './export-view.js';
+export { ExportManager } from './export-manager.js';
 export { ExecutorClient, type InviteResponse } from './executor-client.js';

@@ -45,8 +45,14 @@ coverage/
 
 # Experiments runtime directories
 experiments/**/logs/
-experiments/**/mounts/
+experiments/**/workdir/
 experiments/**/exports/
+experiments/**/temp/
+
+# Examples runtime directories
+examples/**/logs/
+examples/**/workdir/
+examples/**/temp/
 
 # SSH keys (never commit)
 *.pem

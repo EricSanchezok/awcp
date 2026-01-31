@@ -1,11 +1,35 @@
 /**
  * AWCP Configuration for Executor Agent
+ * 
+ * Supports both SSHFS and Archive transports via AWCP_TRANSPORT env var.
  */
 
 import type { ExecutorConfig } from '@awcp/sdk';
-import type { InviteMessage } from '@awcp/core';
+import type { InviteMessage, TransportAdapter } from '@awcp/core';
+import { SshfsTransport } from '@awcp/transport-sshfs';
+import { ArchiveTransport } from '@awcp/transport-archive';
 
 const scenarioDir = process.env.SCENARIO_DIR || process.cwd();
+
+// Transport selection: 'sshfs' (default) or 'archive'
+const transportType = process.env.AWCP_TRANSPORT || 'sshfs';
+
+function createTransport(): TransportAdapter {
+  switch (transportType) {
+    case 'archive':
+      console.log('[AWCP Config] Using Archive transport (HTTP-based)');
+      return new ArchiveTransport({
+        executor: {
+          tempDir: `${scenarioDir}/temp`,
+        },
+      });
+
+    case 'sshfs':
+    default:
+      console.log('[AWCP Config] Using SSHFS transport');
+      return new SshfsTransport();
+  }
+}
 
 // Valid API keys (in production, use database/billing service)
 const VALID_API_KEYS = new Set([
@@ -35,9 +59,8 @@ async function validateApiKey(invite: InviteMessage): Promise<boolean> {
 }
 
 export const awcpConfig: ExecutorConfig = {
-  mount: {
-    root: `${scenarioDir}/mounts`,
-  },
+  workDir: `${scenarioDir}/workdir`,
+  transport: createTransport(),
   sandbox: {
     cwdOnly: true,
     allowNetwork: false,
@@ -51,6 +74,7 @@ export const awcpConfig: ExecutorConfig = {
   hooks: {
     onInvite: async (invite: InviteMessage) => {
       console.log(`[AWCP] Received INVITE: ${invite.delegationId}`);
+      console.log(`[AWCP] Required transport: ${invite.requirements?.transport || 'any'}`);
       
       const isValid = await validateApiKey(invite);
       if (!isValid) {
@@ -61,8 +85,8 @@ export const awcpConfig: ExecutorConfig = {
       return true;
     },
     
-    onTaskStart: (delegationId: string, mountPoint: string) => {
-      console.log(`[AWCP] Task started: ${delegationId}, mount: ${mountPoint}`);
+    onTaskStart: (delegationId: string, workPath: string) => {
+      console.log(`[AWCP] Task started: ${delegationId}, path: ${workPath}`);
     },
     
     onTaskComplete: (delegationId: string, _summary: string) => {

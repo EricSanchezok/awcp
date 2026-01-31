@@ -1,6 +1,6 @@
 /**
  * @awcp/sdk
- * 
+ *
  * AWCP SDK - Delegator and Executor implementations
  */
 
@@ -16,7 +16,6 @@ export {
   type DelegatorServiceStatus,
   // Config
   type DelegatorConfig,
-  type SshConfig,
   type DelegationDefaults,
   type DelegatorHooks,
   // Daemon mode
@@ -32,7 +31,7 @@ export {
   type AdmissionConfig,
   type AdmissionResult,
   type WorkspaceStats,
-  ExportViewManager,
+  ExportManager,
   ExecutorClient,
 } from './delegator/index.js';
 
@@ -47,14 +46,11 @@ export {
   type ExecutorServiceStatus,
   // Config
   type ExecutorConfig,
-  type MountConfig,
   type PolicyConstraints,
   type ExecutorHooks,
   // Utilities
-  LocalPolicy,
-  type PolicyConfig,
-  type MountPointValidation,
-  DelegatorClient,
+  WorkspaceManager,
+  type WorkspaceValidation,
 } from './executor/index.js';
 
 // ============================================

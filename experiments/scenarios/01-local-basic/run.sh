@@ -51,7 +51,7 @@ echo ""
 cd "$SCRIPT_DIR"
 
 # Create required directories
-mkdir -p logs mounts exports
+mkdir -p logs workdir exports
 
 # Reset workspace
 echo -e "${YELLOW}Resetting workspace...${NC}"
@@ -71,7 +71,7 @@ cleanup() {
         kill $EXECUTOR_PID 2>/dev/null || true
     fi
     
-    # Cleanup mounts
+    # Cleanup workdir
     ./cleanup.sh 2>/dev/null || true
     
     echo -e "${GREEN}✓ Cleanup complete${NC}"
@@ -138,5 +138,3 @@ echo "Logs available in:"
 echo "  - logs/delegator.log"
 echo "  - logs/executor.log"
 echo ""
-echo "Press Enter to clean up and exit..."
-read

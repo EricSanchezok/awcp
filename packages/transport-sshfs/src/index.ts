@@ -4,16 +4,24 @@
  * SSHFS Transport implementation for AWCP data plane
  */
 
-// Delegator-side exports
-export {
-  CredentialManager,
-  type CredentialManagerConfig,
-  type GeneratedCredential,
-} from './delegator/index.js';
+// Main transport adapter
+export { SshfsTransport } from './sshfs-transport.js';
 
-// Executor-side exports
-export {
-  SshfsMountClient,
-  type SshfsMountConfig,
-  type MountParams,
-} from './executor/index.js';
+// Types
+export type {
+  SshfsTransportConfig,
+  SshfsDelegatorConfig,
+  SshfsExecutorConfig,
+  CredentialManagerConfig,
+  GeneratedCredential,
+  SshfsMountConfig,
+  MountParams,
+  ActiveMount,
+  SshfsWorkDirInfo,
+  SshCredential,
+  SshEndpoint,
+} from './types.js';
+
+// Lower-level components (for advanced use cases)
+export { CredentialManager } from './delegator/index.js';
+export { SshfsMountClient, DEFAULT_TEMP_KEY_DIR, buildSshfsArgs } from './executor/index.js';

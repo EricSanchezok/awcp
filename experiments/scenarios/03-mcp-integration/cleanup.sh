@@ -14,9 +14,9 @@ pkill -f "sshfs.*03-mcp-integration" 2>/dev/null || true
 # Wait a moment for processes to die
 sleep 0.5
 
-# Unmount any SSHFS mounts
-if [ -d "$SCRIPT_DIR/mounts" ]; then
-    for mount in "$SCRIPT_DIR/mounts"/*; do
+# Unmount any SSHFS mounts in workdir
+if [ -d "$SCRIPT_DIR/workdir" ]; then
+    for mount in "$SCRIPT_DIR/workdir"/*; do
         if [ -d "$mount" ]; then
             umount "$mount" 2>/dev/null || diskutil unmount force "$mount" 2>/dev/null || true
             rmdir "$mount" 2>/dev/null || true

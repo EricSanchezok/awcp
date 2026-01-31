@@ -3,11 +3,11 @@
  */
 
 import type { ExecutorConfig } from '@awcp/sdk';
+import { SshfsTransport } from '@awcp/transport-sshfs';
 
 export const awcpConfig: ExecutorConfig = {
-  mount: {
-    root: '/tmp/awcp/mounts',
-  },
+  workDir: '/tmp/awcp/mounts',
+  transport: new SshfsTransport(),
   sandbox: {
     cwdOnly: true,
     allowNetwork: true,
@@ -19,8 +19,8 @@ export const awcpConfig: ExecutorConfig = {
     autoAccept: true,
   },
   hooks: {
-    onTaskStart: (delegationId: string, mountPoint: string) => {
-      console.log(`[AWCP] Task started: ${delegationId} at ${mountPoint}`);
+    onTaskStart: (delegationId: string, workPath: string) => {
+      console.log(`[AWCP] Task started: ${delegationId} at ${workPath}`);
     },
     onTaskComplete: (delegationId: string, summary: string) => {
       console.log(`[AWCP] Task completed: ${delegationId}`);

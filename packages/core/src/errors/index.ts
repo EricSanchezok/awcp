@@ -1,28 +1,16 @@
 /**
  * AWCP Error Codes
- * 
- * Standard error codes defined in AWCP v1 specification
  */
 export const ErrorCodes = {
-  /** Remote declined collaboration */
   DECLINED: 'DECLINED',
-  /** Missing dependency (e.g., sshfs not installed) */
   DEP_MISSING: 'DEP_MISSING',
-  /** Workspace too large for remote mount collaboration */
   WORKSPACE_TOO_LARGE: 'WORKSPACE_TOO_LARGE',
-  /** Mount point denied by policy */
-  MOUNTPOINT_DENIED: 'MOUNTPOINT_DENIED',
-  /** Lease expired before START */
+  WORKDIR_DENIED: 'WORKDIR_DENIED',
   START_EXPIRED: 'START_EXPIRED',
-  /** Lease expired during execution */
   EXPIRED: 'EXPIRED',
-  /** Authentication failed */
   AUTH_FAILED: 'AUTH_FAILED',
-  /** Mount operation failed */
-  MOUNT_FAILED: 'MOUNT_FAILED',
-  /** Task execution failed */
+  SETUP_FAILED: 'SETUP_FAILED',
   TASK_FAILED: 'TASK_FAILED',
-  /** Cancelled by user or system */
   CANCELLED: 'CANCELLED',
 } as const;
 
@@ -95,7 +83,7 @@ export class WorkspaceTooLargeError extends AwcpError {
   ) {
     super(
       ErrorCodes.WORKSPACE_TOO_LARGE,
-      'Workspace exceeds size limits for remote mount collaboration',
+      'Workspace exceeds size limits',
       hint ?? 'Consider selecting a smaller subdirectory or excluding large files',
       delegationId,
     );
@@ -104,32 +92,32 @@ export class WorkspaceTooLargeError extends AwcpError {
 }
 
 /**
- * Error: Mount point denied by policy
+ * Error: Work directory denied by policy
  */
-export class MountPointDeniedError extends AwcpError {
-  constructor(mountPoint: string, hint?: string, delegationId?: string) {
+export class WorkDirDeniedError extends AwcpError {
+  constructor(workDir: string, hint?: string, delegationId?: string) {
     super(
-      ErrorCodes.MOUNTPOINT_DENIED,
-      `Mount point denied by policy: ${mountPoint}`,
+      ErrorCodes.WORKDIR_DENIED,
+      `Work directory denied by policy: ${workDir}`,
       hint,
       delegationId,
     );
-    this.name = 'MountPointDeniedError';
+    this.name = 'WorkDirDeniedError';
   }
 }
 
 /**
- * Error: Mount operation failed
+ * Error: Transport setup failed
  */
-export class MountFailedError extends AwcpError {
+export class SetupFailedError extends AwcpError {
   constructor(reason: string, hint?: string, delegationId?: string) {
     super(
-      ErrorCodes.MOUNT_FAILED,
-      `Mount failed: ${reason}`,
+      ErrorCodes.SETUP_FAILED,
+      `Setup failed: ${reason}`,
       hint,
       delegationId,
     );
-    this.name = 'MountFailedError';
+    this.name = 'SetupFailedError';
   }
 }
 
@@ -152,10 +140,7 @@ export class TaskFailedError extends AwcpError {
  * Error: Lease expired
  */
 export class LeaseExpiredError extends AwcpError {
-  constructor(
-    duringStart: boolean = false,
-    delegationId?: string,
-  ) {
+  constructor(duringStart: boolean = false, delegationId?: string) {
     super(
       duringStart ? ErrorCodes.START_EXPIRED : ErrorCodes.EXPIRED,
       duringStart

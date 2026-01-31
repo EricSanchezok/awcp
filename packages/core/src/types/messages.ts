@@ -30,7 +30,7 @@ export interface AuthCredential {
 /**
  * Transport types for data plane
  */
-export type TransportType = 'sshfs';
+export type TransportType = 'sshfs' | 'archive';
 
 /**
  * Delegation lifecycle states
@@ -50,9 +50,7 @@ export type DelegationState =
  * Task description for delegation
  */
 export interface TaskSpec {
-  /** Short description for logging/listing */
   description: string;
-  /** Full task prompt with goals and constraints */
   prompt: string;
 }
 
@@ -60,9 +58,7 @@ export interface TaskSpec {
  * Lease configuration
  */
 export interface LeaseConfig {
-  /** Time-to-live in seconds */
   ttlSeconds: number;
-  /** Access mode */
   accessMode: AccessMode;
 }
 
@@ -70,9 +66,7 @@ export interface LeaseConfig {
  * Active lease information (after START)
  */
 export interface ActiveLease {
-  /** Absolute expiration time (ISO 8601) */
   expiresAt: string;
-  /** Effective access mode */
   accessMode: AccessMode;
 }
 
@@ -80,7 +74,6 @@ export interface ActiveLease {
  * Workspace specification in INVITE
  */
 export interface WorkspaceSpec {
-  /** Logical export name (not real path), e.g., "awcp/<id>" */
   exportName: string;
 }
 
@@ -88,27 +81,22 @@ export interface WorkspaceSpec {
  * Requirements for Executor to check
  */
 export interface Requirements {
-  /** Transport type (default: sshfs) */
   transport?: TransportType;
 }
 
 /**
- * Executor mount specification in ACCEPT
+ * Executor work directory specification in ACCEPT
  */
-export interface ExecutorMount {
-  /** Local absolute path on Executor, determined by Executor's policy */
-  mountPoint: string;
+export interface ExecutorWorkDir {
+  path: string;
 }
 
 /**
  * Sandbox profile - capability declaration by Executor
  */
 export interface SandboxProfile {
-  /** Whether tools are restricted to mount point CWD */
   cwdOnly?: boolean;
-  /** Whether network access is allowed */
   allowNetwork?: boolean;
-  /** Whether command execution is allowed */
   allowExec?: boolean;
 }
 
@@ -116,11 +104,8 @@ export interface SandboxProfile {
  * Executor constraints in ACCEPT
  */
 export interface ExecutorConstraints {
-  /** Actually accepted access mode (may be downgraded) */
   acceptedAccessMode?: AccessMode;
-  /** Maximum TTL Executor allows */
   maxTtlSeconds?: number;
-  /** Self-declared sandbox constraints */
   sandboxProfile?: SandboxProfile;
 }
 
@@ -134,19 +119,39 @@ export interface SshEndpoint {
 }
 
 /**
- * Mount information in START message
+ * SSH credential for certificate-based authentication
  */
-export interface MountInfo {
-  /** Transport type */
+export interface SshCredential {
+  privateKey: string;
+  certificate: string;
+}
+
+/**
+ * Work directory information in START message
+ */
+export interface WorkDirInfo {
   transport: TransportType;
-  /** Connection endpoint */
+  [key: string]: unknown;
+}
+
+/**
+ * SSHFS-specific work directory information
+ */
+export interface SshfsWorkDirInfo extends WorkDirInfo {
+  transport: 'sshfs';
   endpoint: SshEndpoint;
-  /** Export path or locator token */
   exportLocator: string;
-  /** Temporary credential (SSH key or token) */
-  credential: string;
-  /** Optional mount parameters */
-  mountOptions?: Record<string, string>;
+  credential: SshCredential;
+  options?: Record<string, string>;
+}
+
+/**
+ * Archive-specific work directory information
+ */
+export interface ArchiveWorkDirInfo extends WorkDirInfo {
+  transport: 'archive';
+  workspaceBase64: string;
+  checksum: string;
 }
 
 /**
@@ -160,7 +165,6 @@ export interface BaseMessage {
 
 /**
  * INVITE message: Delegator → Executor
- * Initiates collaboration request
  */
 export interface InviteMessage extends BaseMessage {
   type: 'INVITE';
@@ -168,58 +172,44 @@ export interface InviteMessage extends BaseMessage {
   lease: LeaseConfig;
   workspace: WorkspaceSpec;
   requirements?: Requirements;
-  /** 
-   * Optional authentication for paid/restricted Executor services.
-   * Executor can validate this in onInvite hook before accepting.
-   */
   auth?: AuthCredential;
 }
 
 /**
  * ACCEPT message: Executor → Delegator
- * Confirms acceptance with mount point
  */
 export interface AcceptMessage extends BaseMessage {
   type: 'ACCEPT';
-  executorMount: ExecutorMount;
+  executorWorkDir: ExecutorWorkDir;
   executorConstraints?: ExecutorConstraints;
 }
 
 /**
  * START message: Delegator → Executor
- * Authorizes and provides credentials
  */
 export interface StartMessage extends BaseMessage {
   type: 'START';
   lease: ActiveLease;
-  mount: MountInfo;
+  workDir: WorkDirInfo;
 }
 
 /**
- * DONE message: Executor → Delegator
- * Reports successful completion
+ * DONE message: Executor → Delegator (via SSE)
  */
 export interface DoneMessage extends BaseMessage {
   type: 'DONE';
-  /** Summary of what was accomplished */
   finalSummary: string;
-  /** Files Executor suggests Delegator to review */
   highlights?: string[];
-  /** Additional notes */
   notes?: string;
 }
 
 /**
  * ERROR message: Either direction
- * Reports failure or rejection
  */
 export interface ErrorMessage extends BaseMessage {
   type: 'ERROR';
-  /** Error code */
   code: string;
-  /** Human-readable description */
   message: string;
-  /** Suggested fix */
   hint?: string;
 }
 
@@ -233,6 +223,63 @@ export type AwcpMessage =
   | DoneMessage
   | ErrorMessage;
 
+// ============================================
+// Task Events (for SSE streaming)
+// ============================================
+
+/**
+ * Task event types for SSE streaming
+ */
+export type TaskEventType = 'status' | 'done' | 'error';
+
+/**
+ * Base task event structure
+ */
+export interface BaseTaskEvent {
+  delegationId: string;
+  type: TaskEventType;
+  timestamp: string;
+}
+
+/**
+ * Status update event
+ */
+export interface TaskStatusEvent extends BaseTaskEvent {
+  type: 'status';
+  status: 'running' | 'progress';
+  message?: string;
+  progress?: number;
+}
+
+/**
+ * Task completion event
+ */
+export interface TaskDoneEvent extends BaseTaskEvent {
+  type: 'done';
+  summary: string;
+  highlights?: string[];
+  resultBase64?: string;
+}
+
+/**
+ * Task error event
+ */
+export interface TaskErrorEvent extends BaseTaskEvent {
+  type: 'error';
+  code: string;
+  message: string;
+  hint?: string;
+}
+
+/**
+ * Union type for all task events
+ */
+export type TaskEvent = TaskStatusEvent | TaskDoneEvent | TaskErrorEvent;
+
+// ============================================
+// Delegation Record
+// ============================================
+
 /**
  * Delegation record - full state of a delegation
  */
@@ -245,7 +292,7 @@ export interface Delegation {
   task: TaskSpec;
   leaseConfig: LeaseConfig;
   activeLease?: ActiveLease;
-  executorMount?: ExecutorMount;
+  executorWorkDir?: ExecutorWorkDir;
   executorConstraints?: ExecutorConstraints;
   result?: {
     summary: string;
@@ -260,13 +307,3 @@ export interface Delegation {
   createdAt: string;
   updatedAt: string;
 }
-
-// ============================================
-// Backwards compatibility aliases (deprecated)
-// ============================================
-
-/** @deprecated Use ExecutorMount instead */
-export type RemoteMount = ExecutorMount;
-
-/** @deprecated Use ExecutorConstraints instead */
-export type RemoteConstraints = ExecutorConstraints;

@@ -6,6 +6,13 @@
  */
 
 import { z } from 'zod';
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import type { PeersContext } from '../peer-discovery.js';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const DESCRIPTION_TEMPLATE = readFileSync(join(__dirname, 'delegate.txt'), 'utf-8');
 
 export const delegateSchema = z.object({
   description: z
@@ -42,29 +49,39 @@ export const delegateSchema = z.object({
 
 export type DelegateParams = z.infer<typeof delegateSchema>;
 
-export const delegateDescription = `Delegate a local workspace directory to a remote Executor agent.
+/**
+ * Generate delegate tool description with available executors info
+ */
+export function generateDelegateDescription(peers?: PeersContext): string {
+  let executorsSection = '';
 
-## Parameters
-- **description** (required): Short task description for logs
-- **prompt** (required): Full task instructions with goals and constraints
-- **workspace_dir** (required): Local directory path to delegate
-- **peer_url** (required): Executor's AWCP endpoint URL
-- **ttl_seconds** (optional): Lease duration (default: 3600)
-- **access_mode** (optional): "ro" or "rw" (default: "rw")
-- **background** (optional): Return immediately if true (default: false)
+  // Add available executors section if peers are configured
+  if (peers && peers.peers.length > 0) {
+    const availablePeers = peers.peers.filter(p => p.card);
+    
+    if (availablePeers.length > 0) {
+      executorsSection = '## Available Executors';
+      
+      for (const peer of availablePeers) {
+        const card = peer.card!;
+        executorsSection += `\n\n### ${card.name}`;
+        executorsSection += `\n- **URL**: \`${peer.awcpUrl}\``;
+        
+        if (card.description) {
+          executorsSection += `\n- **Description**: ${card.description}`;
+        }
+        
+        if (card.skills && card.skills.length > 0) {
+          const skillNames = card.skills.map(s => s.name).join(', ');
+          executorsSection += `\n- **Skills**: ${skillNames}`;
+        }
+      }
+    }
+  }
 
-## Behavior
-- **Sync mode (background=false)**: Waits for task completion, returns final_summary
-- **Async mode (background=true)**: Returns delegation_id immediately
+  // Replace {executors} placeholder with actual content
+  return DESCRIPTION_TEMPLATE.replace('{executors}', executorsSection);
+}
 
-## Example
-\`\`\`
-delegate({
-  description: "Fix TypeScript errors",
-  prompt: "Find and fix all type errors in the src/ directory...",
-  workspace_dir: "/path/to/project",
-  peer_url: "http://executor:4001/awcp",
-  background: true
-})
-\`\`\`
-`;
+// For backward compatibility - static description without peers
+export const delegateDescription = generateDelegateDescription();

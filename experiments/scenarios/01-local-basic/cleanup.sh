@@ -7,7 +7,7 @@ echo "Cleaning up scenario..."
 
 # Clean runtime directories
 rm -rf "$SCRIPT_DIR/exports"/*
-rm -rf "$SCRIPT_DIR/mounts"/*
+rm -rf "$SCRIPT_DIR/workdir"/*
 rm -rf "$SCRIPT_DIR/logs"/*
 
 # Reset workspace to original state

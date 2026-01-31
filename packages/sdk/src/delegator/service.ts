@@ -2,11 +2,12 @@
  * AWCP Delegator Service
  *
  * Manages the AWCP delegation protocol on the Delegator side.
- * Integrates credential management and export view creation.
  */
 
 import { randomUUID } from 'node:crypto';
-import { CredentialManager } from '@awcp/transport-sshfs';
+import * as fs from 'node:fs/promises';
+import * as path from 'node:path';
+import * as os from 'node:os';
 import {
   type Delegation,
   type TaskSpec,
@@ -18,6 +19,8 @@ import {
   type AwcpMessage,
   type AccessMode,
   type AuthCredential,
+  type DelegatorTransportAdapter,
+  type TaskEvent,
   DelegationStateMachine,
   createDelegation,
   applyMessageToDelegation,
@@ -27,33 +30,18 @@ import {
 } from '@awcp/core';
 import { type DelegatorConfig, type ResolvedDelegatorConfig, resolveDelegatorConfig } from './config.js';
 import { AdmissionController } from './admission.js';
-import { ExportViewManager } from './export-view.js';
+import { ExportManager } from './export-manager.js';
 import { ExecutorClient } from './executor-client.js';
 
-/**
- * Parameters for creating a delegation
- */
 export interface DelegateParams {
-  /** URL of the Executor's AWCP endpoint */
   executorUrl: string;
-  /** Local directory to delegate */
   localDir: string;
-  /** Task specification */
   task: TaskSpec;
-  /** TTL in seconds (uses default if not specified) */
   ttlSeconds?: number;
-  /** Access mode (uses default if not specified) */
   accessMode?: AccessMode;
-  /** 
-   * Optional authentication for paid/restricted Executor services.
-   * This will be included in the INVITE message.
-   */
   auth?: AuthCredential;
 }
 
-/**
- * Service status
- */
 export interface DelegatorServiceStatus {
   activeDelegations: number;
   delegations: Array<{
@@ -65,40 +53,23 @@ export interface DelegatorServiceStatus {
   }>;
 }
 
-/**
- * Options for creating the service
- */
 export interface DelegatorServiceOptions {
-  /** AWCP Delegator configuration */
   config: DelegatorConfig;
-  /** Callback URL where Executor will send ACCEPT/DONE/ERROR */
-  callbackUrl: string;
 }
 
-/**
- * AWCP Delegator Service
- *
- * Manages the AWCP delegation lifecycle from the Delegator side:
- * 1. Creates export view for workspace
- * 2. Sends INVITE to Executor
- * 3. Receives ACCEPT, generates credentials
- * 4. Sends START with credentials
- * 5. Receives DONE/ERROR, cleans up
- */
 export class DelegatorService {
   private config: ResolvedDelegatorConfig;
-  private callbackUrl: string;
+  private transport: DelegatorTransportAdapter;
   private admissionController: AdmissionController;
-  private exportManager: ExportViewManager;
-  private credentialManager: CredentialManager;
+  private exportManager: ExportManager;
   private executorClient: ExecutorClient;
   private delegations = new Map<string, Delegation>();
   private stateMachines = new Map<string, DelegationStateMachine>();
-  private executorUrls = new Map<string, string>(); // delegationId -> executorUrl
+  private executorUrls = new Map<string, string>();
 
   constructor(options: DelegatorServiceOptions) {
     this.config = resolveDelegatorConfig(options.config);
-    this.callbackUrl = options.callbackUrl;
+    this.transport = this.config.transport;
 
     this.admissionController = new AdmissionController({
       maxTotalBytes: this.config.admission.maxTotalBytes,
@@ -106,35 +77,17 @@ export class DelegatorService {
       maxSingleFileBytes: this.config.admission.maxSingleFileBytes,
     });
 
-    this.exportManager = new ExportViewManager({
+    this.exportManager = new ExportManager({
       baseDir: this.config.export.baseDir,
       strategy: this.config.export.strategy,
     });
 
-    this.credentialManager = new CredentialManager({
-      keyDir: this.config.ssh.keyDir,
-      sshHost: this.config.ssh.host,
-      sshPort: this.config.ssh.port,
-      sshUser: this.config.ssh.user,
-    });
-
-    this.executorClient = new ExecutorClient({
-      callbackUrl: this.callbackUrl,
-    });
+    this.executorClient = new ExecutorClient();
   }
 
-  /**
-   * Create a new delegation
-   *
-   * This sends an INVITE to the Executor and waits for ACCEPT.
-   * After ACCEPT, it automatically sends START with credentials.
-   *
-   * @returns The delegation ID
-   */
   async delegate(params: DelegateParams): Promise<string> {
     const delegationId = randomUUID();
 
-    // Step 1: Admission Control
     const admissionResult = await this.admissionController.check(params.localDir);
     if (!admissionResult.allowed) {
       throw new WorkspaceTooLargeError(
@@ -144,7 +97,6 @@ export class DelegatorService {
       );
     }
 
-    // Step 2: Create delegation record
     const ttlSeconds = params.ttlSeconds ?? this.config.defaults.ttlSeconds;
     const accessMode = params.accessMode ?? this.config.defaults.accessMode;
 
@@ -156,19 +108,15 @@ export class DelegatorService {
       leaseConfig: { ttlSeconds, accessMode },
     });
 
-    // Step 3: Create export view
-    const exportPath = await this.exportManager.create(delegationId, params.localDir);
+    const exportPath = await this.exportManager.allocate(delegationId, params.localDir);
     delegation.exportPath = exportPath;
 
-    // Step 4: Initialize state machine
     const stateMachine = new DelegationStateMachine();
 
-    // Step 5: Store delegation
     this.delegations.set(delegationId, delegation);
     this.stateMachines.set(delegationId, stateMachine);
     this.executorUrls.set(delegationId, params.executorUrl);
 
-    // Step 6: Build and send INVITE
     const inviteMessage: InviteMessage = {
       version: PROTOCOL_VERSION,
       type: 'INVITE',
@@ -179,23 +127,19 @@ export class DelegatorService {
         exportName: `awcp/${delegationId}`,
       },
       requirements: {
-        transport: 'sshfs',
+        transport: this.transport.type,
       },
-      // Include auth if provided (for paid/restricted Executor services)
       ...(params.auth && { auth: params.auth }),
     };
 
-    // Transition state
     stateMachine.transition({ type: 'SEND_INVITE', message: inviteMessage });
     delegation.state = stateMachine.getState();
     delegation.updatedAt = new Date().toISOString();
 
     try {
-      // Send INVITE and get response (ACCEPT or ERROR)
       const response = await this.executorClient.sendInvite(params.executorUrl, inviteMessage);
 
       if (response.type === 'ERROR') {
-        // Executor rejected
         await this.handleError(response);
         throw new AwcpError(
           response.code as any,
@@ -205,25 +149,16 @@ export class DelegatorService {
         );
       }
 
-      // Got ACCEPT - process it
       await this.handleAccept(response);
-
-      // Call hook
       this.config.hooks.onDelegationCreated?.(delegation);
 
       return delegationId;
     } catch (error) {
-      // Cleanup on error
       await this.cleanup(delegationId);
       throw error;
     }
   }
 
-  /**
-   * Handle ACCEPT message from Executor
-   *
-   * This is called internally after INVITE, or externally via the Express handler.
-   */
   async handleAccept(message: AcceptMessage): Promise<void> {
     const delegation = this.delegations.get(message.delegationId);
     if (!delegation) {
@@ -234,29 +169,26 @@ export class DelegatorService {
     const stateMachine = this.stateMachines.get(message.delegationId)!;
     const executorUrl = this.executorUrls.get(message.delegationId)!;
 
-    // Transition state
     const result = stateMachine.transition({ type: 'RECEIVE_ACCEPT', message });
     if (!result.success) {
       console.error(`[AWCP Delegator] State transition failed: ${result.error}`);
       return;
     }
 
-    // Update delegation
     const updated = applyMessageToDelegation(delegation, message);
     updated.state = stateMachine.getState();
     this.delegations.set(delegation.id, updated);
 
-    // Generate credentials
-    const { credential, endpoint } = await this.credentialManager.generateCredential(
-      delegation.id,
-      delegation.leaseConfig.ttlSeconds
-    );
+    const { workDirInfo } = await this.transport.prepare({
+      delegationId: delegation.id,
+      exportPath: updated.exportPath!,
+      ttlSeconds: delegation.leaseConfig.ttlSeconds,
+    });
 
     const expiresAt = new Date(
       Date.now() + delegation.leaseConfig.ttlSeconds * 1000
     ).toISOString();
 
-    // Build START message
     const startMessage: StartMessage = {
       version: PROTOCOL_VERSION,
       type: 'START',
@@ -265,31 +197,108 @@ export class DelegatorService {
         expiresAt,
         accessMode: delegation.leaseConfig.accessMode,
       },
-      mount: {
-        transport: 'sshfs',
-        endpoint,
-        exportLocator: updated.exportPath!,
-        credential,
-      },
+      workDir: workDirInfo,
     };
 
-    // Transition to started
     stateMachine.transition({ type: 'SEND_START', message: startMessage });
     updated.state = stateMachine.getState();
     updated.activeLease = startMessage.lease;
     updated.updatedAt = new Date().toISOString();
     this.delegations.set(delegation.id, updated);
 
-    // Send START
     await this.executorClient.sendStart(executorUrl, startMessage);
-
-    // Call hook
     this.config.hooks.onDelegationStarted?.(updated);
+
+    // Subscribe to SSE events for task completion
+    this.subscribeToTaskEvents(delegation.id, executorUrl);
+  }
+
+  private async subscribeToTaskEvents(delegationId: string, executorUrl: string): Promise<void> {
+    try {
+      for await (const event of this.executorClient.subscribeTask(executorUrl, delegationId)) {
+        await this.handleTaskEvent(delegationId, event);
+        if (event.type === 'done' || event.type === 'error') {
+          break;
+        }
+      }
+    } catch (error) {
+      console.error(`[AWCP Delegator] SSE subscription error for ${delegationId}:`, error);
+    }
+  }
+
+  private async handleTaskEvent(delegationId: string, event: TaskEvent): Promise<void> {
+    const delegation = this.delegations.get(delegationId);
+    if (!delegation) return;
+
+    const stateMachine = this.stateMachines.get(delegationId)!;
+
+    if (event.type === 'status' && stateMachine.getState() === 'started') {
+      stateMachine.transition({ type: 'SETUP_COMPLETE' });
+      delegation.state = stateMachine.getState();
+      delegation.updatedAt = new Date().toISOString();
+      this.delegations.set(delegationId, delegation);
+    }
+
+    if (event.type === 'done') {
+      // Apply result back to workspace if present
+      if (event.resultBase64 && delegation.localDir) {
+        await this.applyResult(delegationId, delegation.localDir, event.resultBase64);
+      }
+
+      const doneMessage: DoneMessage = {
+        version: PROTOCOL_VERSION,
+        type: 'DONE',
+        delegationId,
+        finalSummary: event.summary,
+        highlights: event.highlights,
+      };
+      await this.handleDone(doneMessage);
+    }
+
+    if (event.type === 'error') {
+      const errorMessage: ErrorMessage = {
+        version: PROTOCOL_VERSION,
+        type: 'ERROR',
+        delegationId,
+        code: event.code,
+        message: event.message,
+        hint: event.hint,
+      };
+      await this.handleError(errorMessage);
+    }
   }
 
   /**
-   * Handle DONE message from Executor
+   * Apply result from Executor back to original workspace
    */
+  private async applyResult(delegationId: string, localDir: string, resultBase64: string): Promise<void> {
+    try {
+      // Decode base64 to buffer
+      const buffer = Buffer.from(resultBase64, 'base64');
+      
+      // Write to temp file
+      const tempDir = path.join(os.tmpdir(), 'awcp-results');
+      await fs.mkdir(tempDir, { recursive: true });
+      const archivePath = path.join(tempDir, `${delegationId}-result.zip`);
+      await fs.writeFile(archivePath, buffer);
+
+      // Extract to localDir (overwriting existing files)
+      const { exec } = await import('node:child_process');
+      const { promisify } = await import('node:util');
+      const execAsync = promisify(exec);
+
+      // Use unzip to extract, overwriting existing files
+      await execAsync(`unzip -o "${archivePath}" -d "${localDir}"`);
+
+      // Cleanup temp file
+      await fs.unlink(archivePath).catch(() => {});
+
+      console.log(`[AWCP Delegator] Applied result to ${localDir}`);
+    } catch (error) {
+      console.error(`[AWCP Delegator] Failed to apply result for ${delegationId}:`, error);
+    }
+  }
+
   async handleDone(message: DoneMessage): Promise<void> {
     const delegation = this.delegations.get(message.delegationId);
     if (!delegation) {
@@ -299,9 +308,8 @@ export class DelegatorService {
 
     const stateMachine = this.stateMachines.get(message.delegationId)!;
 
-    // Transition through 'running' if needed
     if (stateMachine.getState() === 'started') {
-      stateMachine.transition({ type: 'MOUNT_COMPLETE' });
+      stateMachine.transition({ type: 'SETUP_COMPLETE' });
     }
 
     const result = stateMachine.transition({ type: 'RECEIVE_DONE', message });
@@ -310,21 +318,14 @@ export class DelegatorService {
       return;
     }
 
-    // Update delegation
     const updated = applyMessageToDelegation(delegation, message);
     updated.state = stateMachine.getState();
     this.delegations.set(delegation.id, updated);
 
-    // Cleanup
     await this.cleanup(delegation.id);
-
-    // Call hook
     this.config.hooks.onDelegationCompleted?.(updated);
   }
 
-  /**
-   * Handle ERROR message from Executor
-   */
   async handleError(message: ErrorMessage): Promise<void> {
     const delegation = this.delegations.get(message.delegationId);
     if (!delegation) {
@@ -335,15 +336,12 @@ export class DelegatorService {
     const stateMachine = this.stateMachines.get(message.delegationId)!;
     stateMachine.transition({ type: 'RECEIVE_ERROR', message });
 
-    // Update delegation
     const updated = applyMessageToDelegation(delegation, message);
     updated.state = stateMachine.getState();
     this.delegations.set(delegation.id, updated);
 
-    // Cleanup
     await this.cleanup(delegation.id);
 
-    // Call hook
     const error = new AwcpError(
       message.code as any,
       message.message,
@@ -353,9 +351,6 @@ export class DelegatorService {
     this.config.hooks.onError?.(delegation.id, error);
   }
 
-  /**
-   * Handle incoming message from Executor
-   */
   async handleMessage(message: AwcpMessage): Promise<void> {
     switch (message.type) {
       case 'ACCEPT':
@@ -372,9 +367,6 @@ export class DelegatorService {
     }
   }
 
-  /**
-   * Cancel a delegation
-   */
   async cancel(delegationId: string): Promise<void> {
     const delegation = this.delegations.get(delegationId);
     if (!delegation) {
@@ -389,26 +381,17 @@ export class DelegatorService {
       throw new Error(`Cannot cancel delegation in state ${delegation.state}`);
     }
 
-    // Request Executor to cancel (unmount) before we revoke keys
     await this.executorClient.sendCancel(executorUrl, delegationId).catch(console.error);
-
-    // Now safe to cleanup (revoke SSH keys)
     await this.cleanup(delegationId);
 
     delegation.state = stateMachine.getState();
     delegation.updatedAt = new Date().toISOString();
   }
 
-  /**
-   * Get delegation status
-   */
   getDelegation(delegationId: string): Delegation | undefined {
     return this.delegations.get(delegationId);
   }
 
-  /**
-   * Wait for delegation to complete
-   */
   async waitForCompletion(delegationId: string, timeoutMs: number = 60000): Promise<Delegation> {
     const startTime = Date.now();
 
@@ -431,16 +414,12 @@ export class DelegatorService {
         return delegation;
       }
 
-      // Wait a bit before checking again
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
 
     throw new Error('Timeout waiting for delegation to complete');
   }
 
-  /**
-   * Get service status
-   */
   getStatus(): DelegatorServiceStatus {
     return {
       activeDelegations: this.delegations.size,
@@ -454,12 +433,9 @@ export class DelegatorService {
     };
   }
 
-  /**
-   * Cleanup resources for a delegation
-   */
   private async cleanup(delegationId: string): Promise<void> {
-    await this.credentialManager.revokeCredential(delegationId);
-    await this.exportManager.cleanup(delegationId);
+    await this.transport.cleanup(delegationId);
+    await this.exportManager.release(delegationId);
     this.executorUrls.delete(delegationId);
   }
 }

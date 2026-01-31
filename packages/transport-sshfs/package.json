@@ -5,6 +5,9 @@
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
+  "bin": {
+    "awcp-sshfs": "./bin/awcp-sshfs.js"
+  },
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -21,6 +24,7 @@
   },
   "files": [
     "dist",
+    "bin",
     "README.md"
   ],
   "scripts": {
@@ -30,7 +34,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@awcp/core": "^0.0.1"
+    "@awcp/core": "*"
   },
   "keywords": [
     "awcp",
