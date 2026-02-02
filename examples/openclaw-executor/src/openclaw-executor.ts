@@ -1,6 +1,6 @@
 /**
  * OpenClaw Executor
- * 
+ *
  * AgentExecutor implementation that delegates to OpenClaw AI assistant.
  * When a workspace is mounted via AWCP, OpenClaw operates on those files.
  */
@@ -10,9 +10,8 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import type { Message } from '@a2a-js/sdk';
 import type { AgentExecutor, RequestContext, ExecutionEventBus } from '@a2a-js/sdk/server';
-import type { OpenClawExecutorConfig } from './config.js';
 import { OpenClawHttpClient, type StreamChunk } from './http-client.js';
-import { OpenClawGatewayManager } from './gateway-manager.js';
+import type { OpenClawGatewayManager } from './gateway-manager.js';
 
 const DEFAULT_TIMEOUT_MS = 30 * 60 * 1000;
 const LEASE_BUFFER_MS = 30 * 1000;
@@ -39,7 +38,6 @@ WORKSPACE RULES:
 `;
 
 export class OpenClawExecutor implements AgentExecutor {
-  private config: OpenClawExecutorConfig;
   private client: OpenClawHttpClient;
   private gatewayManager: OpenClawGatewayManager;
   private workingDirectory: string | null = null;
@@ -48,16 +46,14 @@ export class OpenClawExecutor implements AgentExecutor {
   private defaultTimeoutMs: number;
 
   constructor(
-    config: OpenClawExecutorConfig,
     gatewayManager: OpenClawGatewayManager,
     defaultTimeoutMs = DEFAULT_TIMEOUT_MS,
   ) {
-    this.config = config;
     this.gatewayManager = gatewayManager;
     this.defaultTimeoutMs = defaultTimeoutMs;
     this.client = new OpenClawHttpClient({
-      baseUrl: config.gatewayUrl,
-      token: config.gatewayToken,
+      baseUrl: gatewayManager.gatewayUrl,
+      token: gatewayManager.gatewayToken,
       agentId: 'main',
     });
   }
@@ -132,7 +128,6 @@ export class OpenClawExecutor implements AgentExecutor {
     const timeoutMs = this.getTimeoutMs();
     console.log(`[OpenClawExecutor] Request timeout: ${Math.round(timeoutMs / 1000)}s`);
 
-    await this.gatewayManager.updateWorkspace(this.workingDirectory!);
     await this.injectAgentsMd(this.workingDirectory!, prompt);
 
     const sessionKey = this.delegationId ? `awcp:${this.delegationId}` : `awcp:${uuidv4()}`;

@@ -275,7 +275,7 @@ export class ExecutorService {
       };
       eventEmitter.emit('event', statusEvent);
 
-      const result = await this.executeViaA2A(actualPath, task);
+      const result = await this.executeViaA2A(actualPath, task, environment);
 
       const teardownResult = await this.transport.teardown({ delegationId, workDir: actualPath });
 
@@ -370,7 +370,8 @@ export class ExecutorService {
 
   private async executeViaA2A(
     workPath: string,
-    task: TaskSpec
+    task: TaskSpec,
+    environment: EnvironmentSpec
   ): Promise<{ summary: string; highlights?: string[] }> {
     const message: Message = {
       kind: 'message',
@@ -380,7 +381,7 @@ export class ExecutorService {
         { kind: 'text', text: task.prompt },
         {
           kind: 'text',
-          text: `\n\n[AWCP Context]\nWorking directory: ${workPath}\nTask: ${task.description}`,
+          text: this.formatAwcpContext(workPath, task, environment),
         },
       ],
     };
@@ -409,6 +410,30 @@ export class ExecutorService {
     return {
       summary: summary || 'Task completed',
     };
+  }
+
+  private formatAwcpContext(workPath: string, task: TaskSpec, environment: EnvironmentSpec): string {
+    const lines = [
+      '',
+      '[AWCP Context]',
+      `Task: ${task.description}`,
+      `Root: ${workPath}`,
+      '',
+      'Resources:',
+    ];
+
+    for (const resource of environment.resources) {
+      const resourcePath = `${workPath}/${resource.name}`;
+      lines.push(`  - ${resource.name}: ${resourcePath} (${resource.mode})`);
+    }
+
+    if (environment.resources.length === 1) {
+      const singleResource = environment.resources[0]!;
+      lines.push('');
+      lines.push(`Working directory: ${workPath}/${singleResource.name}`);
+    }
+
+    return lines.join('\n');
   }
 
   getStatus(): ExecutorServiceStatus {

@@ -1,60 +1,28 @@
+/**
+ * OpenClaw Gateway Manager
+ *
+ * Manages the OpenClaw Gateway process lifecycle.
+ * The Gateway provides OpenAI-compatible HTTP API for AI inference.
+ */
+
 import { spawn, ChildProcess } from 'node:child_process';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
-import type { OpenClawExecutorConfig } from './config.js';
-
-export interface OpenClawModelConfig {
-  id: string;
-  name: string;
-  contextWindow: number;
-  maxTokens: number;
-}
-
-export interface OpenClawProviderConfig {
-  baseUrl: string;
-  apiKey: string;
-  api: string;
-  models: OpenClawModelConfig[];
-}
-
-export interface OpenClawConfig {
-  gateway: {
-    port: number;
-    auth: {
-      mode: 'token';
-      token: string;
-    };
-    http: {
-      endpoints: {
-        chatCompletions: { enabled: boolean };
-      };
-    };
-  };
-  models?: {
-    mode: 'merge';
-    providers: Record<string, OpenClawProviderConfig>;
-  };
-  agents: {
-    defaults: {
-      workspace: string;
-      skipBootstrap: boolean;
-      model?: { primary: string };
-    };
-  };
-  tools: {
-    profile: string;
-  };
-}
+import type { AppConfig } from './app-config.js';
+import type { OpenClawConfig, OpenClawGatewayConfig } from './openclaw-config.js';
+import { generateGatewayConfig } from './openclaw-config.js';
 
 export class OpenClawGatewayManager {
   private process: ChildProcess | null = null;
-  private config: OpenClawExecutorConfig;
+  private appConfig: AppConfig;
+  private openclawConfig: OpenClawConfig;
   private configPath: string;
   private isStarted = false;
 
-  constructor(config: OpenClawExecutorConfig) {
-    this.config = config;
-    this.configPath = path.join(config.openclawConfigDir, 'openclaw.json');
+  constructor(appConfig: AppConfig, openclawConfig: OpenClawConfig) {
+    this.appConfig = appConfig;
+    this.openclawConfig = openclawConfig;
+    this.configPath = path.join(openclawConfig.stateDir, 'openclaw.json');
   }
 
   async start(): Promise<void> {
@@ -66,23 +34,23 @@ export class OpenClawGatewayManager {
     await this.ensureDirectories();
     await this.writeConfig();
 
-    console.log(`[GatewayManager] Starting OpenClaw Gateway on port ${this.config.gatewayPort}...`);
+    console.log(`[GatewayManager] Starting OpenClaw Gateway on port ${this.openclawConfig.gatewayPort}...`);
 
     this.process = spawn('openclaw', [
       'gateway',
-      '--port', String(this.config.gatewayPort),
-      '--token', this.config.gatewayToken,
+      '--port', String(this.openclawConfig.gatewayPort),
+      '--token', this.openclawConfig.gatewayToken,
       '--allow-unconfigured',
     ], {
       env: {
         ...process.env,
-        OPENCLAW_STATE_DIR: this.config.openclawConfigDir,
-        OPENCLAW_GATEWAY_TOKEN: this.config.gatewayToken,
+        OPENCLAW_STATE_DIR: this.openclawConfig.stateDir,
+        OPENCLAW_GATEWAY_TOKEN: this.openclawConfig.gatewayToken,
       },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
 
-    const logFile = path.join(this.config.logsDir, 'openclaw-gateway.log');
+    const logFile = path.join(this.appConfig.logsDir, 'openclaw-gateway.log');
     const logStream = await fs.open(logFile, 'a');
 
     this.process.stdout?.on('data', (data) => {
@@ -134,19 +102,18 @@ export class OpenClawGatewayManager {
 
   async updateWorkspace(workspacePath: string): Promise<void> {
     console.log(`[GatewayManager] Updating workspace to: ${workspacePath}`);
-    
-    const openclawConfig = this.generateConfig(workspacePath);
-    await fs.writeFile(this.configPath, JSON.stringify(openclawConfig, null, 2));
+
+    const gatewayConfig = generateGatewayConfig(this.openclawConfig, workspacePath);
+    await fs.writeFile(this.configPath, JSON.stringify(gatewayConfig, null, 2));
   }
 
   async checkHealth(): Promise<boolean> {
     try {
-      // OpenClaw gateway returns HTML on root, check if server responds
-      const response = await fetch(`${this.config.gatewayUrl}/v1/chat/completions`, {
+      const response = await fetch(`${this.openclawConfig.gatewayUrl}/v1/chat/completions`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${this.config.gatewayToken}`,
+          'Authorization': `Bearer ${this.openclawConfig.gatewayToken}`,
         },
         body: JSON.stringify({
           model: 'test',
@@ -173,91 +140,28 @@ export class OpenClawGatewayManager {
   }
 
   private async ensureDirectories(): Promise<void> {
-    await fs.mkdir(this.config.openclawConfigDir, { recursive: true });
-    await fs.mkdir(this.config.logsDir, { recursive: true });
-    await fs.mkdir(this.config.workDir, { recursive: true });
-    await fs.mkdir(this.config.tempDir, { recursive: true });
+    await fs.mkdir(this.openclawConfig.stateDir, { recursive: true });
+    await fs.mkdir(this.appConfig.logsDir, { recursive: true });
+    await fs.mkdir(path.join(this.appConfig.dataDir, 'workdir'), { recursive: true });
+    await fs.mkdir(path.join(this.appConfig.dataDir, 'temp'), { recursive: true });
   }
 
   private async writeConfig(): Promise<void> {
-    const openclawConfig = this.generateConfig(this.config.workDir);
-    await fs.writeFile(this.configPath, JSON.stringify(openclawConfig, null, 2));
-  }
-
-  private generateConfig(workspace: string): OpenClawConfig {
-    const config: OpenClawConfig = {
-      gateway: {
-        port: this.config.gatewayPort,
-        auth: {
-          mode: 'token',
-          token: this.config.gatewayToken,
-        },
-        http: {
-          endpoints: {
-            chatCompletions: { enabled: true },
-          },
-        },
-      },
-      agents: {
-        defaults: {
-          workspace,
-          skipBootstrap: true,
-        },
-      },
-      tools: {
-        profile: 'coding',
-      },
-    };
-
-    // Configure model provider based on available API keys
-    if (process.env.DEEPSEEK_API_KEY) {
-      config.models = {
-        mode: 'merge',
-        providers: {
-          deepseek: {
-            baseUrl: 'https://api.deepseek.com/v1',
-            apiKey: '${DEEPSEEK_API_KEY}',
-            api: 'openai-completions',
-            models: [
-              {
-                id: 'deepseek-chat',
-                name: 'DeepSeek Chat',
-                contextWindow: 64000,
-                maxTokens: 8192,
-              },
-            ],
-          },
-        },
-      };
-      config.agents.defaults.model = { primary: 'deepseek/deepseek-chat' };
-    } else if (process.env.OPENROUTER_API_KEY) {
-      config.models = {
-        mode: 'merge',
-        providers: {
-          openrouter: {
-            baseUrl: 'https://openrouter.ai/api/v1',
-            apiKey: '${OPENROUTER_API_KEY}',
-            api: 'openai-completions',
-            models: [
-              {
-                id: 'anthropic/claude-sonnet-4',
-                name: 'Claude Sonnet 4',
-                contextWindow: 200000,
-                maxTokens: 8192,
-              },
-            ],
-          },
-        },
-      };
-      config.agents.defaults.model = { primary: 'openrouter/anthropic/claude-sonnet-4' };
-    }
-    // For ANTHROPIC_API_KEY and OPENAI_API_KEY, OpenClaw has built-in support
-
-    return config;
+    const defaultWorkspace = path.join(this.appConfig.dataDir, 'workdir');
+    const gatewayConfig = generateGatewayConfig(this.openclawConfig, defaultWorkspace);
+    await fs.writeFile(this.configPath, JSON.stringify(gatewayConfig, null, 2));
   }
 
   get pid(): number | undefined {
     return this.process?.pid;
+  }
+
+  get gatewayUrl(): string {
+    return this.openclawConfig.gatewayUrl;
+  }
+
+  get gatewayToken(): string {
+    return this.openclawConfig.gatewayToken;
   }
 }
 

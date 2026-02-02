@@ -1,10 +1,29 @@
 # OpenClaw Executor
 
-AWCP Executor powered by [OpenClaw](https://github.com/openclaw/openclaw) - an open-source AI assistant.
+AWCP Executor powered by [OpenClaw](https://github.com/anthropics/openclaw) - an open-source AI coding assistant.
 
-## Overview
+This example demonstrates how to integrate an AI assistant with the Agent Workspace Collaboration Protocol (AWCP).
 
-This executor wraps OpenClaw to work as an AWCP-compatible agent that can receive delegated coding tasks from a Delegator agent.
+## Quick Start
+
+```bash
+# 1. Install OpenClaw
+npm install -g openclaw@latest
+
+# 2. Set your API key
+export DEEPSEEK_API_KEY="sk-xxx"
+# or: ANTHROPIC_API_KEY, OPENAI_API_KEY, OPENROUTER_API_KEY
+
+# 3. Run the executor
+./run.sh
+```
+
+The executor will start on `http://localhost:10200` with:
+- **A2A endpoint**: `/a2a` - Agent-to-Agent protocol
+- **AWCP endpoint**: `/awcp` - Workspace delegation protocol
+- **Agent Card**: `/.well-known/agent-card.json`
+
+## How It Works
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -16,139 +35,93 @@ This executor wraps OpenClaw to work as an AWCP-compatible agent that can receiv
 │   │               │    │                                   │   │
 │   │ • A2A         │───►│ • OpenAI-compatible HTTP API      │   │
 │   │ • AWCP        │    │ • SSE streaming                   │   │
-│   │ • Health      │    │ • Session isolation               │   │
+│   │ • Health      │    │ • Tool execution                  │   │
 │   └───────────────┘    └───────────────────────────────────┘   │
 │                                                                  │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-## Prerequisites
+When a Delegator sends work:
 
-- Node.js >= 22
-- OpenClaw installed globally:
-  ```bash
-  npm install -g openclaw@latest
-  ```
-- AI API key (one of):
-  - `ANTHROPIC_API_KEY`
-  - `OPENAI_API_KEY`
-  - `OPENROUTER_API_KEY` (supports DeepSeek, Llama, Mistral, etc.)
-  - `DEEPSEEK_API_KEY` (direct DeepSeek API)
+1. **INVITE** → Executor receives task description
+2. **ACCEPT** → Executor agrees to take the task
+3. **START** → Workspace files are transferred
+4. **Execute** → OpenClaw processes the task
+5. **DONE** → Results are returned to Delegator
 
-## Quick Start
+## Project Structure
 
-```bash
-# Set your API key
-export ANTHROPIC_API_KEY="your-key-here"
-
-# Run the executor
-./run.sh
 ```
-
-### Using DeepSeek (via OpenRouter)
-
-```bash
-export OPENROUTER_API_KEY="sk-or-v1-xxx"
-./run.sh
+src/
+├── agent.ts           # Main entry point
+├── app-config.ts      # Application configuration
+├── openclaw-config.ts # OpenClaw-specific configuration
+├── awcp-config.ts     # AWCP protocol configuration (standard pattern)
+├── gateway-manager.ts # OpenClaw Gateway lifecycle
+├── openclaw-executor.ts # AgentExecutor implementation
+├── http-client.ts     # OpenClaw HTTP API client
+└── agent-card.ts      # A2A Agent Card definition
 ```
-
-Then configure the model in `~/.openclaw/openclaw.json`:
-
-```json5
-{
-  agents: {
-    defaults: {
-      model: {
-        primary: "openrouter/deepseek/deepseek-chat"
-      }
-    }
-  }
-}
-```
-
-### Using DeepSeek (direct API)
-
-```bash
-export DEEPSEEK_API_KEY="sk-xxx"
-./run.sh
-```
-
-Configure in `~/.openclaw/openclaw.json`:
-
-```json5
-{
-  models: {
-    providers: {
-      deepseek: {
-        type: "openai-compatible",
-        baseUrl: "https://api.deepseek.com/v1",
-        apiKey: "${DEEPSEEK_API_KEY}"
-      }
-    }
-  },
-  agents: {
-    defaults: {
-      model: { primary: "deepseek/deepseek-chat" }
-    }
-  }
-}
-```
-
-The executor will:
-1. Start an OpenClaw Gateway on port 18789
-2. Start the Executor Agent on port 10200
-3. Expose A2A and AWCP endpoints
-
-## Endpoints
-
-| Endpoint | Description |
-|----------|-------------|
-| `/.well-known/agent-card.json` | A2A Agent Card |
-| `/a2a` | A2A JSON-RPC endpoint |
-| `/awcp` | AWCP protocol endpoint |
-| `/health` | Health check |
 
 ## Configuration
 
-Environment variables:
+### Environment Variables
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `PORT` | `10200` | Executor agent port |
+| `PORT` | `10200` | HTTP server port |
+| `HOST` | `0.0.0.0` | HTTP server bind address |
 | `OPENCLAW_PORT` | `18789` | OpenClaw Gateway port |
-| `OPENCLAW_GATEWAY_TOKEN` | auto-generated | Gateway authentication token |
-| `AWCP_TRANSPORT` | `archive` | Transport type (`archive` or `sshfs`) |
+| `AWCP_TRANSPORT` | `archive` | File transport (`archive` or `sshfs`) |
 
-## How It Works
+### API Keys
 
-1. **AWCP Integration**: When a Delegator sends an INVITE, this executor accepts and receives the workspace files via Archive transport.
+The executor auto-configures the model provider based on available API keys:
 
-2. **OpenClaw Gateway**: A local OpenClaw Gateway instance handles AI inference with the configured model provider.
+| Key | Provider | Model |
+|-----|----------|-------|
+| `DEEPSEEK_API_KEY` | DeepSeek | deepseek-chat |
+| `OPENROUTER_API_KEY` | OpenRouter | claude-sonnet-4 |
+| `ANTHROPIC_API_KEY` | Anthropic | (OpenClaw default) |
+| `OPENAI_API_KEY` | OpenAI | (OpenClaw default) |
 
-3. **Workspace Isolation**: Each delegation task gets its own session with OpenClaw, ensuring isolation.
+## Integrating Your Own AI Assistant
 
-4. **HTTP API**: Uses OpenClaw's OpenAI-compatible `/v1/chat/completions` endpoint for task execution with SSE streaming.
+This example shows the standard pattern for AWCP integration. Key files to study:
 
-## Architecture
+### `awcp-config.ts` - AWCP Configuration
 
+```typescript
+// Standard AWCP configuration - same pattern for any AI assistant
+export function createAwcpConfig(...): ExecutorConfig {
+  return {
+    workDir,           // Where workspaces are extracted
+    transport,         // How files are transferred
+    sandbox,           // Security constraints
+    policy,            // Limits and rules
+    hooks: {
+      onInvite,        // Accept/decline delegations
+      onTaskStart,     // Configure your AI's workspace
+      onTaskComplete,  // Cleanup after task
+      onError,         // Handle failures
+    },
+  };
+}
 ```
-Delegator                    OpenClaw Executor
-    │                              │
-    │── INVITE ───────────────────►│
-    │◄── ACCEPT ───────────────────│
-    │                              │
-    │── START (workspace ZIP) ────►│
-    │                              │
-    │                    ┌─────────┴─────────┐
-    │                    │ 1. Extract ZIP    │
-    │                    │ 2. Update config  │
-    │                    │ 3. Call OpenClaw  │
-    │                    │    HTTP API       │
-    │                    │ 4. Stream result  │
-    │                    └─────────┬─────────┘
-    │                              │
-    │◄── SSE events ───────────────│
-    │◄── DONE (result) ────────────│
+
+### `openclaw-executor.ts` - AI Integration
+
+```typescript
+// Implement AgentExecutor interface
+export class OpenClawExecutor implements AgentExecutor {
+  setWorkingDirectory(dir: string, context?: AwcpContext): void {
+    // Configure your AI to work in this directory
+  }
+
+  async execute(ctx: RequestContext, eventBus: ExecutionEventBus): Promise<void> {
+    // Send task to your AI and stream results
+  }
+}
 ```
 
 ## Development
@@ -172,17 +145,15 @@ npm install -g openclaw@latest
 ```
 
 ### Gateway fails to start
-Check logs:
+Check if the port is in use:
 ```bash
-cat logs/openclaw-gateway.log
+lsof -i :18789
 ```
 
-### API key issues
-Ensure your API key is set:
+### No API key error
+Ensure one of the supported API keys is set:
 ```bash
-export ANTHROPIC_API_KEY="sk-ant-..."
-# or
-export OPENAI_API_KEY="sk-..."
+echo $DEEPSEEK_API_KEY
 ```
 
 ## License

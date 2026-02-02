@@ -1,8 +1,13 @@
 /**
  * OpenClaw Executor Agent
- * 
+ *
  * A2A Agent with AWCP support for executing coding tasks
  * using OpenClaw AI assistant on delegated workspaces.
+ *
+ * This example demonstrates how to integrate an AI assistant with AWCP:
+ * 1. Load application and AI-specific configuration
+ * 2. Create AWCP executor configuration with lifecycle hooks
+ * 3. Start the HTTP server with A2A and AWCP endpoints
  */
 
 import express from 'express';
@@ -10,83 +15,73 @@ import { AGENT_CARD_PATH } from '@a2a-js/sdk';
 import { DefaultRequestHandler, InMemoryTaskStore } from '@a2a-js/sdk/server';
 import { agentCardHandler, jsonRpcHandler, UserBuilder } from '@a2a-js/sdk/server/express';
 import { executorHandler } from '@awcp/sdk/server/express';
-import { resolveWorkDir, type TaskStartContext } from '@awcp/sdk';
 
-import { openclawAgentCard } from './agent-card.js';
+import { loadAppConfig } from './app-config.js';
+import { loadOpenClawConfig } from './openclaw-config.js';
+import { createAgentCard } from './agent-card.js';
 import { OpenClawExecutor } from './openclaw-executor.js';
 import { OpenClawGatewayManager } from './gateway-manager.js';
 import { createAwcpConfig } from './awcp-config.js';
-import { loadConfig } from './config.js';
 
 async function main() {
-  const config = loadConfig();
+  // --- Step 1: Load Configuration ---
+  const appConfig = loadAppConfig();
+  const openclawConfig = loadOpenClawConfig(appConfig);
 
   console.log('');
   console.log('╔════════════════════════════════════════════════════════════╗');
   console.log('║         OpenClaw Executor Agent - Starting...              ║');
   console.log('╚════════════════════════════════════════════════════════════╝');
   console.log('');
+  console.log(`Data directory: ${appConfig.dataDir}`);
 
-  const gatewayManager = new OpenClawGatewayManager(config);
+  // --- Step 2: Start OpenClaw Gateway ---
+  const gatewayManager = new OpenClawGatewayManager(appConfig, openclawConfig);
   await gatewayManager.start();
 
-  const executor = new OpenClawExecutor(config, gatewayManager);
+  // --- Step 3: Create Executor ---
+  const executor = new OpenClawExecutor(gatewayManager);
+
+  // --- Step 4: Create A2A Agent Card ---
+  const agentCard = createAgentCard(appConfig);
 
   const requestHandler = new DefaultRequestHandler(
-    openclawAgentCard,
+    agentCard,
     new InMemoryTaskStore(),
     executor
   );
 
+  // --- Step 5: Setup Express Server ---
   const app = express();
 
+  // A2A endpoints
   app.use(`/${AGENT_CARD_PATH}`, agentCardHandler({ agentCardProvider: requestHandler }) as unknown as express.RequestHandler);
   app.use('/a2a', jsonRpcHandler({
     requestHandler,
     userBuilder: UserBuilder.noAuthentication
   }) as unknown as express.RequestHandler);
 
-  const awcpConfig = createAwcpConfig(config, executor, gatewayManager);
+  // --- Step 6: Create AWCP Configuration ---
+  // This is the standard AWCP configuration - same pattern for any AI assistant
+  const awcpConfig = createAwcpConfig(appConfig, executor, gatewayManager);
 
-  const awcpConfigWithHooks = {
-    ...awcpConfig,
-    hooks: {
-      ...awcpConfig.hooks,
-      onTaskStart: async (ctx: TaskStartContext) => {
-        const workDir = resolveWorkDir(ctx);
-        executor.setWorkingDirectory(workDir, {
-          leaseExpiresAt: new Date(ctx.lease.expiresAt),
-          delegationId: ctx.delegationId,
-          taskId: ctx.delegationId,
-        });
-        await gatewayManager.updateWorkspace(workDir);
-        await awcpConfig.hooks?.onTaskStart?.(ctx);
-      },
-      onTaskComplete: (delegationId: string, summary: string) => {
-        executor.clearWorkingDirectory();
-        awcpConfig.hooks?.onTaskComplete?.(delegationId, summary);
-      },
-      onError: (delegationId: string, error: Error) => {
-        executor.clearWorkingDirectory();
-        awcpConfig.hooks?.onError?.(delegationId, error);
-      },
-    },
-  };
+  // AWCP endpoint
+  app.use('/awcp', executorHandler({ executor, config: awcpConfig }) as unknown as express.RequestHandler);
 
-  app.use('/awcp', executorHandler({ executor, config: awcpConfigWithHooks }) as unknown as express.RequestHandler);
-
+  // Health check endpoint
   app.get('/health', async (_req, res) => {
     const gatewayHealthy = await gatewayManager.checkHealth();
     res.json({
       status: gatewayHealthy ? 'ok' : 'degraded',
       gateway: {
-        url: config.gatewayUrl,
+        url: openclawConfig.gatewayUrl,
         healthy: gatewayHealthy,
         pid: gatewayManager.pid,
       },
     });
   });
 
+  // --- Step 7: Graceful Shutdown ---
   const gracefulShutdown = async (signal: string) => {
     console.log(`\n[Agent] Received ${signal}, shutting down...`);
     await gatewayManager.stop();
@@ -96,15 +91,17 @@ async function main() {
   process.on('SIGINT', () => gracefulShutdown('SIGINT'));
   process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 
-  app.listen(config.port, () => {
+  // --- Step 8: Start Server ---
+  app.listen(appConfig.port, appConfig.host, () => {
+    const displayHost = appConfig.host === '0.0.0.0' ? 'localhost' : appConfig.host;
     console.log('');
     console.log('╔════════════════════════════════════════════════════════════════╗');
     console.log('║         OpenClaw Executor Agent Ready!                         ║');
     console.log('╠════════════════════════════════════════════════════════════════╣');
-    console.log(`║  Agent Card:  http://localhost:${config.port}/.well-known/agent-card.json║`);
-    console.log(`║  A2A:         http://localhost:${config.port}/a2a                        ║`);
-    console.log(`║  AWCP:        http://localhost:${config.port}/awcp                       ║`);
-    console.log(`║  OpenClaw:    ${config.gatewayUrl.padEnd(47)}║`);
+    console.log(`║  Agent Card:  http://${displayHost}:${appConfig.port}/.well-known/agent-card.json`);
+    console.log(`║  A2A:         http://${displayHost}:${appConfig.port}/a2a`);
+    console.log(`║  AWCP:        http://${displayHost}:${appConfig.port}/awcp`);
+    console.log(`║  OpenClaw:    ${openclawConfig.gatewayUrl}`);
     console.log('╚════════════════════════════════════════════════════════════════╝');
     console.log('');
     console.log('Press Ctrl+C to stop...');
