@@ -1,0 +1,46 @@
+{
+  "gateway": {
+    "port": 18789,
+    "auth": {
+      "mode": "token",
+      "token": "awcp-rv6akjltolh9tiramvlxto"
+    },
+    "http": {
+      "endpoints": {
+        "chatCompletions": {
+          "enabled": true
+        }
+      }
+    }
+  },
+  "agents": {
+    "defaults": {
+      "workspace": "/Users/eric/projects/agent-collaboration-protocol/experiments/scenarios/06-openclaw-executor/workdir/ebb4ef44-a81b-4fb4-a631-a00e028678a6",
+      "skipBootstrap": true,
+      "model": {
+        "primary": "deepseek/deepseek-chat"
+      }
+    }
+  },
+  "tools": {
+    "profile": "coding"
+  },
+  "models": {
+    "mode": "merge",
+    "providers": {
+      "deepseek": {
+        "baseUrl": "https://api.deepseek.com/v1",
+        "apiKey": "${DEEPSEEK_API_KEY}",
+        "api": "openai-completions",
+        "models": [
+          {
+            "id": "deepseek-chat",
+            "name": "DeepSeek Chat",
+            "contextWindow": 64000,
+            "maxTokens": 8192
+          }
+        ]
+      }
+    }
+  }
+}
