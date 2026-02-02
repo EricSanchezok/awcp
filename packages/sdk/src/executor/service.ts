@@ -222,7 +222,7 @@ export class ExecutorService {
 
     const pending = this.pendingInvitations.get(delegationId);
     if (!pending) {
-      console.warn(`[AWCP] Unknown delegation for START: ${delegationId}`);
+      console.warn(`[AWCP:Executor] Unknown delegation for START: ${delegationId}`);
       return;
     }
 

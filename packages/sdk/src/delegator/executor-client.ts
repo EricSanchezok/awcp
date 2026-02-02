@@ -54,7 +54,7 @@ export class ExecutorClient {
       } catch (error) {
         retries++;
         if (retries >= this.sseMaxRetries) throw error;
-        console.log(`[AWCP] SSE retry ${retries}/${this.sseMaxRetries} for ${delegationId}`);
+        console.log(`[AWCP:Client] SSE retry ${retries}/${this.sseMaxRetries} for ${delegationId}`);
         await new Promise(r => setTimeout(r, this.sseRetryDelayMs * retries));
       }
     }

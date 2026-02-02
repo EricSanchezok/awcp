@@ -10,9 +10,6 @@ import type {
   ErrorMessage,
 } from '../types/messages.js';
 
-/**
- * Valid state transitions for delegation lifecycle
- */
 const STATE_TRANSITIONS: Record<DelegationState, DelegationState[]> = {
   created: ['invited', 'error', 'cancelled'],
   invited: ['accepted', 'error', 'cancelled', 'expired'],
@@ -25,16 +22,10 @@ const STATE_TRANSITIONS: Record<DelegationState, DelegationState[]> = {
   expired: [],
 };
 
-/**
- * Check if a state is terminal (no further transitions possible)
- */
 export function isTerminalState(state: DelegationState): boolean {
   return STATE_TRANSITIONS[state].length === 0;
 }
 
-/**
- * Check if a state transition is valid
- */
 export function isValidTransition(
   from: DelegationState,
   to: DelegationState,
@@ -42,9 +33,6 @@ export function isValidTransition(
   return STATE_TRANSITIONS[from].includes(to);
 }
 
-/**
- * Events that can trigger state transitions
- */
 export type DelegationEvent =
   | { type: 'SEND_INVITE'; message: InviteMessage }
   | { type: 'RECEIVE_ACCEPT'; message: AcceptMessage }
@@ -56,18 +44,12 @@ export type DelegationEvent =
   | { type: 'CANCEL' }
   | { type: 'EXPIRE' };
 
-/**
- * Result of a state transition
- */
 export interface TransitionResult {
   success: boolean;
   newState: DelegationState;
   error?: string;
 }
 
-/**
- * Delegation state machine
- */
 export class DelegationStateMachine {
   private state: DelegationState = 'created';
 
@@ -111,10 +93,6 @@ export class DelegationStateMachine {
     };
   }
 
-  forceState(state: DelegationState): void {
-    this.state = state;
-  }
-
   private getTargetState(event: DelegationEvent): DelegationState | null {
     switch (event.type) {
       case 'SEND_INVITE':
@@ -150,9 +128,6 @@ export class DelegationStateMachine {
   }
 }
 
-/**
- * Create a new delegation record
- */
 export function createDelegation(params: {
   id: string;
   peerUrl: string;
@@ -173,9 +148,6 @@ export function createDelegation(params: {
   };
 }
 
-/**
- * Update delegation with message data
- */
 export function applyMessageToDelegation(
   delegation: Delegation,
   message: AwcpMessage,

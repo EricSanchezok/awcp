@@ -3,6 +3,10 @@
  */
 
 import type { Delegation, AccessMode, DelegatorTransportAdapter } from '@awcp/core';
+import type { AdmissionConfig } from './admission.js';
+
+// Re-export for convenience
+export type { AdmissionConfig } from './admission.js';
 
 /**
  * Environment builder configuration
@@ -10,18 +14,6 @@ import type { Delegation, AccessMode, DelegatorTransportAdapter } from '@awcp/co
 export interface EnvironmentConfig {
   /** Base directory for environment directories */
   baseDir: string;
-}
-
-/**
- * Admission control configuration
- */
-export interface AdmissionConfig {
-  /** Maximum total bytes allowed (default: 100MB) */
-  maxTotalBytes?: number;
-  /** Maximum file count allowed (default: 10000) */
-  maxFileCount?: number;
-  /** Maximum single file size (default: 50MB) */
-  maxSingleFileBytes?: number;
 }
 
 /**
@@ -61,18 +53,28 @@ export interface DelegatorConfig {
 }
 
 /**
- * Default configuration values
+ * Default admission thresholds
+ */
+export const DEFAULT_ADMISSION = {
+  maxTotalBytes: 100 * 1024 * 1024,      // 100MB
+  maxFileCount: 10000,
+  maxSingleFileBytes: 50 * 1024 * 1024,  // 50MB
+} as const;
+
+/**
+ * Default delegation settings
+ */
+export const DEFAULT_DELEGATION = {
+  ttlSeconds: 3600,
+  accessMode: 'rw' as AccessMode,
+} as const;
+
+/**
+ * Combined default configuration
  */
 export const DEFAULT_DELEGATOR_CONFIG = {
-  admission: {
-    maxTotalBytes: 100 * 1024 * 1024, // 100MB
-    maxFileCount: 10000,
-    maxSingleFileBytes: 50 * 1024 * 1024, // 50MB
-  },
-  defaults: {
-    ttlSeconds: 3600,
-    accessMode: 'rw' as AccessMode,
-  },
+  admission: DEFAULT_ADMISSION,
+  defaults: DEFAULT_DELEGATION,
 } as const;
 
 /**
@@ -113,13 +115,13 @@ export function resolveDelegatorConfig(config: DelegatorConfig): ResolvedDelegat
     },
     transport: config.transport,
     admission: {
-      maxTotalBytes: config.admission?.maxTotalBytes ?? DEFAULT_DELEGATOR_CONFIG.admission.maxTotalBytes,
-      maxFileCount: config.admission?.maxFileCount ?? DEFAULT_DELEGATOR_CONFIG.admission.maxFileCount,
-      maxSingleFileBytes: config.admission?.maxSingleFileBytes ?? DEFAULT_DELEGATOR_CONFIG.admission.maxSingleFileBytes,
+      maxTotalBytes: config.admission?.maxTotalBytes ?? DEFAULT_ADMISSION.maxTotalBytes,
+      maxFileCount: config.admission?.maxFileCount ?? DEFAULT_ADMISSION.maxFileCount,
+      maxSingleFileBytes: config.admission?.maxSingleFileBytes ?? DEFAULT_ADMISSION.maxSingleFileBytes,
     },
     defaults: {
-      ttlSeconds: config.defaults?.ttlSeconds ?? DEFAULT_DELEGATOR_CONFIG.defaults.ttlSeconds,
-      accessMode: config.defaults?.accessMode ?? DEFAULT_DELEGATOR_CONFIG.defaults.accessMode,
+      ttlSeconds: config.defaults?.ttlSeconds ?? DEFAULT_DELEGATION.ttlSeconds,
+      accessMode: config.defaults?.accessMode ?? DEFAULT_DELEGATION.accessMode,
     },
     hooks: config.hooks ?? {},
   };

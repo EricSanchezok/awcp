@@ -6,12 +6,11 @@
  */
 
 import express from 'express';
-import { join } from 'node:path';
 import { AGENT_CARD_PATH } from '@a2a-js/sdk';
 import { DefaultRequestHandler, InMemoryTaskStore } from '@a2a-js/sdk/server';
 import { agentCardHandler, jsonRpcHandler, UserBuilder } from '@a2a-js/sdk/server/express';
 import { executorHandler } from '@awcp/sdk/server/express';
-import type { TaskStartContext } from '@awcp/sdk';
+import { resolveWorkDir, type TaskStartContext } from '@awcp/sdk';
 
 import { executorAgentCard } from './agent-card.js';
 import { FileOperationExecutor } from './executor.js';
@@ -32,18 +31,6 @@ app.use('/a2a', jsonRpcHandler({
   requestHandler,
   userBuilder: UserBuilder.noAuthentication
 }));
-
-function resolveWorkDir(ctx: TaskStartContext): string {
-  const { environment, workPath } = ctx;
-  const rwResource = environment.resources.find((r) => r.mode === 'rw');
-  if (rwResource) {
-    return join(workPath, rwResource.name);
-  }
-  if (environment.resources.length === 1) {
-    return join(workPath, environment.resources[0]!.name);
-  }
-  return workPath;
-}
 
 const awcpConfigWithHooks = {
   ...awcpConfig,

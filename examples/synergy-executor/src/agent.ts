@@ -6,17 +6,16 @@
  */
 
 import express from 'express';
-import { join } from 'node:path';
 import { AGENT_CARD_PATH } from '@a2a-js/sdk';
 import { DefaultRequestHandler, InMemoryTaskStore } from '@a2a-js/sdk/server';
 import { agentCardHandler, jsonRpcHandler, UserBuilder } from '@a2a-js/sdk/server/express';
 import { executorHandler } from '@awcp/sdk/server/express';
+import { resolveWorkDir, type TaskStartContext } from '@awcp/sdk';
 
 import { synergyAgentCard } from './agent-card.js';
 import { SynergyExecutor } from './synergy-executor.js';
 import { awcpConfig } from './awcp-config.js';
 import { loadConfig } from './config.js';
-import type { TaskStartContext } from '@awcp/sdk';
 
 const config = loadConfig();
 
@@ -29,25 +28,13 @@ const requestHandler = new DefaultRequestHandler(
 );
 
 const app = express();
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-app.use(`/${AGENT_CARD_PATH}`, agentCardHandler({ agentCardProvider: requestHandler }) as any);
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+
+// Type casts needed due to @types/express version mismatch between packages
+app.use(`/${AGENT_CARD_PATH}`, agentCardHandler({ agentCardProvider: requestHandler }) as unknown as express.RequestHandler);
 app.use('/a2a', jsonRpcHandler({
   requestHandler,
   userBuilder: UserBuilder.noAuthentication
-}) as any);
-
-function resolveWorkDir(ctx: TaskStartContext): string {
-  const { environment, workPath } = ctx;
-  const rwResource = environment.resources.find((r) => r.mode === 'rw');
-  if (rwResource) {
-    return join(workPath, rwResource.name);
-  }
-  if (environment.resources.length === 1) {
-    return join(workPath, environment.resources[0]!.name);
-  }
-  return workPath;
-}
+}) as unknown as express.RequestHandler);
 
 const awcpConfigWithHooks = {
   ...awcpConfig,
@@ -72,8 +59,7 @@ const awcpConfigWithHooks = {
   },
 };
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-app.use('/awcp', executorHandler({ executor, config: awcpConfigWithHooks }) as any);
+app.use('/awcp', executorHandler({ executor, config: awcpConfigWithHooks }) as unknown as express.RequestHandler);
 
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok', synergy: config.synergyUrl });

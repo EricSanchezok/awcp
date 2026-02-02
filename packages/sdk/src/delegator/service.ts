@@ -168,7 +168,7 @@ export class DelegatorService {
   async handleAccept(message: AcceptMessage): Promise<void> {
     const delegation = this.delegations.get(message.delegationId);
     if (!delegation) {
-      console.warn(`[AWCP Delegator] Unknown delegation for ACCEPT: ${message.delegationId}`);
+      console.warn(`[AWCP:Delegator] Unknown delegation for ACCEPT: ${message.delegationId}`);
       return;
     }
 
@@ -177,7 +177,7 @@ export class DelegatorService {
 
     const result = stateMachine.transition({ type: 'RECEIVE_ACCEPT', message });
     if (!result.success) {
-      console.error(`[AWCP Delegator] State transition failed: ${result.error}`);
+      console.error(`[AWCP:Delegator] State transition failed: ${result.error}`);
       return;
     }
 
@@ -221,16 +221,16 @@ export class DelegatorService {
 
   private async subscribeToTaskEvents(delegationId: string, executorUrl: string): Promise<void> {
     try {
-      console.log(`[AWCP Delegator] Subscribing to SSE for ${delegationId}`);
+      console.log(`[AWCP:Delegator] Subscribing to SSE for ${delegationId}`);
       for await (const event of this.executorClient.subscribeTask(executorUrl, delegationId)) {
-        console.log(`[AWCP Delegator] SSE event for ${delegationId}: ${event.type}`);
+        console.log(`[AWCP:Delegator] SSE event for ${delegationId}: ${event.type}`);
         await this.handleTaskEvent(delegationId, event);
         if (event.type === 'done' || event.type === 'error') {
           break;
         }
       }
     } catch (error) {
-      console.error(`[AWCP Delegator] SSE subscription error for ${delegationId}:`, error);
+      console.error(`[AWCP:Delegator] SSE subscription error for ${delegationId}:`, error);
       // Mark delegation as error if SSE fails and task hasn't completed
       const delegation = this.delegations.get(delegationId);
       if (delegation && !['completed', 'error', 'cancelled'].includes(delegation.state)) {
@@ -309,16 +309,16 @@ export class DelegatorService {
 
       await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
 
-      console.log(`[AWCP Delegator] Applied result for ${delegationId}`);
+      console.log(`[AWCP:Delegator] Applied result for ${delegationId}`);
     } catch (error) {
-      console.error(`[AWCP Delegator] Failed to apply result for ${delegationId}:`, error);
+      console.error(`[AWCP:Delegator] Failed to apply result for ${delegationId}:`, error);
     }
   }
 
   async handleDone(message: DoneMessage): Promise<void> {
     const delegation = this.delegations.get(message.delegationId);
     if (!delegation) {
-      console.warn(`[AWCP Delegator] Unknown delegation for DONE: ${message.delegationId}`);
+      console.warn(`[AWCP:Delegator] Unknown delegation for DONE: ${message.delegationId}`);
       return;
     }
 
@@ -330,7 +330,7 @@ export class DelegatorService {
 
     const result = stateMachine.transition({ type: 'RECEIVE_DONE', message });
     if (!result.success) {
-      console.error(`[AWCP Delegator] State transition failed: ${result.error}`);
+      console.error(`[AWCP:Delegator] State transition failed: ${result.error}`);
       return;
     }
 
@@ -345,7 +345,7 @@ export class DelegatorService {
   async handleError(message: ErrorMessage): Promise<void> {
     const delegation = this.delegations.get(message.delegationId);
     if (!delegation) {
-      console.warn(`[AWCP Delegator] Unknown delegation for ERROR: ${message.delegationId}`);
+      console.warn(`[AWCP:Delegator] Unknown delegation for ERROR: ${message.delegationId}`);
       return;
     }
 
@@ -379,7 +379,7 @@ export class DelegatorService {
         await this.handleError(message);
         break;
       default:
-        console.warn(`[AWCP Delegator] Unexpected message type: ${(message as AwcpMessage).type}`);
+        console.warn(`[AWCP:Delegator] Unexpected message type: ${(message as AwcpMessage).type}`);
     }
   }
 
