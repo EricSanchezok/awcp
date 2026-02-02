@@ -39,7 +39,6 @@ WORKSPACE RULES:
 
 export class OpenClawExecutor implements AgentExecutor {
   private client: OpenClawHttpClient;
-  private gatewayManager: OpenClawGatewayManager;
   private workingDirectory: string | null = null;
   private leaseExpiresAt: Date | null = null;
   private delegationId: string | null = null;
@@ -49,7 +48,6 @@ export class OpenClawExecutor implements AgentExecutor {
     gatewayManager: OpenClawGatewayManager,
     defaultTimeoutMs = DEFAULT_TIMEOUT_MS,
   ) {
-    this.gatewayManager = gatewayManager;
     this.defaultTimeoutMs = defaultTimeoutMs;
     this.client = new OpenClawHttpClient({
       baseUrl: gatewayManager.gatewayUrl,

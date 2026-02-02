@@ -82,7 +82,7 @@ export class OpenClawHttpClient {
       throw new Error(`OpenClaw API error (${response.status}): ${errorText}`);
     }
 
-    return response.json();
+    return response.json() as Promise<ChatCompletionResponse>;
   }
 
   async chatCompletionStream(
@@ -155,6 +155,7 @@ export class OpenClawHttpClient {
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${this.token}`,
+        'x-openclaw-agent-id': this.agentId,
       },
       body: JSON.stringify({ tool, args }),
     });
@@ -164,7 +165,7 @@ export class OpenClawHttpClient {
       throw new Error(`OpenClaw tools/invoke error (${response.status}): ${errorText}`);
     }
 
-    const result = await response.json();
+    const result = await response.json() as { ok: boolean; error?: { message: string }; result?: unknown };
     if (!result.ok) {
       throw new Error(result.error?.message || 'Tool invocation failed');
     }

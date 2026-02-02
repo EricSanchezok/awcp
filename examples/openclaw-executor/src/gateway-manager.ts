@@ -9,7 +9,7 @@ import { spawn, ChildProcess } from 'node:child_process';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import type { AppConfig } from './app-config.js';
-import type { OpenClawConfig, OpenClawGatewayConfig } from './openclaw-config.js';
+import type { OpenClawConfig } from './openclaw-config.js';
 import { generateGatewayConfig } from './openclaw-config.js';
 
 export class OpenClawGatewayManager {
