@@ -18,10 +18,10 @@
   },
   "devDependencies": {
     "@types/node": "^20.10.0",
-    "typescript": "^5.3.0",
-    "eslint": "^8.55.0",
     "@typescript-eslint/eslint-plugin": "^6.13.0",
     "@typescript-eslint/parser": "^6.13.0",
+    "eslint": "^8.55.0",
+    "typescript": "^5.3.0",
     "vitest": "^1.0.0"
   },
   "engines": {
@@ -39,5 +39,9 @@
     "workspace",
     "multi-agent",
     "llm"
-  ]
+  ],
+  "dependencies": {
+    "@awcp/sdk": "^0.0.8",
+    "@awcp/transport-archive": "^0.0.8"
+  }
 }

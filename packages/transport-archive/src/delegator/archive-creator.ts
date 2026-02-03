@@ -8,6 +8,7 @@ import * as crypto from 'node:crypto';
 import * as os from 'node:os';
 import archiver from 'archiver';
 import type { ArchiveCreateResult } from '../types.js';
+import {ResourceSpec} from "@awcp/core";
 
 export interface ArchiveCreatorConfig {
   tempDir?: string;
@@ -21,7 +22,7 @@ export class ArchiveCreator {
     this.tempDir = config.tempDir ?? path.join(os.tmpdir(), 'awcp-archives');
   }
 
-  async create(delegationId: string, sourceDir: string): Promise<ArchiveCreateResult> {
+  async create(delegationId: string, sourceDir: string, resourceSpec?:ResourceSpec): Promise<ArchiveCreateResult> {
     await fs.promises.mkdir(this.tempDir, { recursive: true });
 
     const archivePath = path.join(this.tempDir, `${delegationId}.zip`);
@@ -31,10 +32,14 @@ export class ArchiveCreator {
     archive.pipe(writeStream);
     archive.glob('**/*', {
       cwd: sourceDir,
-      ignore: ['.awcp/**'],
+      ignore: [
+        '.awcp/**',
+        ...(resourceSpec?.exclude || [])
+      ],
       dot: true,
       follow: true,
-    });
+      nodir: true,
+      });
     await archive.finalize();
 
     await new Promise<void>((resolve, reject) => {
