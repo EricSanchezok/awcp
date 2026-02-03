@@ -520,7 +520,7 @@
 │  │  │   delegationId: string            summary: string                       │    │ │
 │  │  │   workPath: string                highlights?: string[]                 │    │ │
 │  │  │   task: TaskSpec                }                                       │    │ │
-│  │  │   environment: EnvironmentSpec                                          │    │ │
+│  │  │   environment: EnvironmentDeclaration                                     │    │ │
 │  │  │ }                                                                       │    │ │
 │  │  └─────────────────────────────────────────────────────────────────────────┘    │ │
 │  │                                                                                  │ │
