@@ -10,7 +10,7 @@ import {
   type ErrorMessage,
   type AwcpMessage,
   type TaskSpec,
-  type EnvironmentSpec,
+  type EnvironmentDeclaration,
   type ExecutorConstraints,
   type ExecutorTransportAdapter,
   type TaskEvent,
@@ -39,7 +39,7 @@ interface ActiveDelegation {
   workPath: string;
   task: TaskSpec;
   lease: ActiveLease;
-  environment: EnvironmentSpec;
+  environment: EnvironmentDeclaration;
   startedAt: Date;
   eventEmitter: EventEmitter;
 }
@@ -238,7 +238,7 @@ export class ExecutorService implements ExecutorRequestHandler {
     workPath: string,
     task: TaskSpec,
     lease: ActiveLease,
-    environment: EnvironmentSpec,
+    environment: EnvironmentDeclaration,
     eventEmitter: EventEmitter,
   ): Promise<void> {
     try {

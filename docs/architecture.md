@@ -115,7 +115,7 @@
 │       │  │ 1. INVITE                                               │   │             │
 │       │  │    • task: { description, prompt }                      │   │             │
 │       │  │    • lease: { ttlSeconds, accessMode }                  │   │             │
-│       │  │    • environment: { resources[] }                       │   │             │
+│       │  │    • environment: EnvironmentDeclaration                 │   │             │
 │       │  │    • requirements: { transport }                        │   │             │
 │       │  └─────────────────────────────────────────────────────────┘   │             │
 │       │ ─────────────────── POST /awcp ───────────────────────────────►│             │
@@ -520,7 +520,7 @@
 │  │  │   delegationId: string            summary: string                       │    │ │
 │  │  │   workPath: string                highlights?: string[]                 │    │ │
 │  │  │   task: TaskSpec                }                                       │    │ │
-│  │  │   environment: EnvironmentSpec                                          │    │ │
+│  │  │   environment: EnvironmentDeclaration                                     │    │ │
 │  │  │ }                                                                       │    │ │
 │  │  └─────────────────────────────────────────────────────────────────────────┘    │ │
 │  │                                                                                  │ │

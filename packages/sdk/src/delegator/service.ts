@@ -109,7 +109,13 @@ export class DelegatorService implements DelegatorRequestHandler {
       delegationId,
       task: params.task,
       lease: { ttlSeconds, accessMode },
-      environment: params.environment,
+      environment: {
+        resources: params.environment.resources.map(r => ({
+          name: r.name,
+          type: r.type,
+          mode: r.mode,
+        })),
+      },
       requirements: {
         transport: this.transport.type,
       },

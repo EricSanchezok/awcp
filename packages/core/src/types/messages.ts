@@ -6,6 +6,7 @@ export type AccessMode = 'ro' | 'rw';
 
 export type ResourceType = 'fs';
 
+/** Full resource specification - Delegator internal use */
 export interface ResourceSpec {
   name: string;
   type: ResourceType;
@@ -17,8 +18,20 @@ export interface ResourceSpec {
   exclude?: string[];
 }
 
+/** Resource declaration for INVITE */
+export interface ResourceDeclaration {
+  name: string;
+  type: ResourceType;
+  mode: AccessMode;
+}
+
 export interface EnvironmentSpec {
   resources: ResourceSpec[];
+}
+
+/** Environment declaration for INVITE */
+export interface EnvironmentDeclaration {
+  resources: ResourceDeclaration[];
 }
 
 export type AuthType = 'api_key' | 'bearer' | 'oauth2' | 'custom';
@@ -127,7 +140,7 @@ export interface InviteMessage extends BaseMessage {
   type: 'INVITE';
   task: TaskSpec;
   lease: LeaseConfig;
-  environment: EnvironmentSpec;
+  environment: EnvironmentDeclaration;
   requirements?: Requirements;
   auth?: AuthCredential;
 }
