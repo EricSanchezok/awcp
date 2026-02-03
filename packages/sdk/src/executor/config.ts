@@ -2,13 +2,24 @@
  * AWCP Executor Configuration
  */
 
-import type { InviteMessage, SandboxProfile, AccessMode, ExecutorTransportAdapter, ActiveLease, TaskSpec, EnvironmentSpec } from '@awcp/core';
+import type {
+  InviteMessage,
+  SandboxProfile,
+  AccessMode,
+  ExecutorTransportAdapter,
+  ActiveLease,
+  TaskSpec,
+  EnvironmentDeclaration,
+  ListenerAdapter,
+  ListenerInfo,
+} from '@awcp/core';
 
 export interface PolicyConstraints {
   maxConcurrentDelegations?: number;
   maxTtlSeconds?: number;
   allowedAccessModes?: AccessMode[];
   autoAccept?: boolean;
+  resultRetentionMs?: number;
 }
 
 export interface TaskStartContext {
@@ -16,7 +27,7 @@ export interface TaskStartContext {
   workPath: string;
   task: TaskSpec;
   lease: ActiveLease;
-  environment: EnvironmentSpec;
+  environment: EnvironmentDeclaration;
 }
 
 export interface ExecutorHooks {
@@ -24,19 +35,17 @@ export interface ExecutorHooks {
   onTaskStart?: (context: TaskStartContext) => void;
   onTaskComplete?: (delegationId: string, summary: string) => void;
   onError?: (delegationId: string, error: Error) => void;
+  onListenerConnected?: (info: ListenerInfo) => void;
+  onListenerDisconnected?: (type: string, error?: Error) => void;
 }
 
 export interface ExecutorConfig {
-  /** Root directory for workspaces */
   workDir: string;
-  /** Transport adapter */
   transport: ExecutorTransportAdapter;
-  /** Sandbox profile */
   sandbox?: SandboxProfile;
-  /** Policy constraints */
   policy?: PolicyConstraints;
-  /** Lifecycle hooks */
   hooks?: ExecutorHooks;
+  listeners?: ListenerAdapter[];
 }
 
 export const DEFAULT_EXECUTOR_CONFIG = {
@@ -45,6 +54,7 @@ export const DEFAULT_EXECUTOR_CONFIG = {
     maxTtlSeconds: 3600,
     allowedAccessModes: ['ro', 'rw'] as AccessMode[],
     autoAccept: true,
+    resultRetentionMs: 30 * 60 * 1000,
   },
   sandbox: {
     cwdOnly: true,
@@ -58,6 +68,7 @@ export interface ResolvedPolicyConstraints {
   maxTtlSeconds: number;
   allowedAccessModes: AccessMode[];
   autoAccept: boolean;
+  resultRetentionMs: number;
 }
 
 export interface ResolvedExecutorConfig {
@@ -66,6 +77,7 @@ export interface ResolvedExecutorConfig {
   sandbox: SandboxProfile;
   policy: ResolvedPolicyConstraints;
   hooks: ExecutorHooks;
+  listeners: ListenerAdapter[];
 }
 
 export function resolveExecutorConfig(config: ExecutorConfig): ResolvedExecutorConfig {
@@ -78,7 +90,9 @@ export function resolveExecutorConfig(config: ExecutorConfig): ResolvedExecutorC
       maxTtlSeconds: config.policy?.maxTtlSeconds ?? DEFAULT_EXECUTOR_CONFIG.policy.maxTtlSeconds,
       allowedAccessModes: config.policy?.allowedAccessModes ?? [...DEFAULT_EXECUTOR_CONFIG.policy.allowedAccessModes],
       autoAccept: config.policy?.autoAccept ?? DEFAULT_EXECUTOR_CONFIG.policy.autoAccept,
+      resultRetentionMs: config.policy?.resultRetentionMs ?? DEFAULT_EXECUTOR_CONFIG.policy.resultRetentionMs,
     },
     hooks: config.hooks ?? {},
+    listeners: config.listeners ?? [],
   };
 }

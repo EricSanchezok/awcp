@@ -10,14 +10,16 @@ packages/
 ├── sdk/               # Delegator and Executor service implementations
 ├── mcp/               # MCP tools for Claude Desktop integration
 ├── transport-sshfs/   # SSHFS transport (SSH + mount)
-└── transport-archive/ # Archive transport (HTTP + ZIP)
+├── transport-archive/ # Archive transport (HTTP + ZIP)
+└── transport-storage/ # Storage transport (S3/HTTP + pre-signed URLs)
 
 experiments/
 ├── shared/executor-agent/  # Shared test executor
-└── scenarios/              # Integration tests (01-05)
+└── scenarios/              # Integration tests (01-06)
 
 examples/
-└── synergy-executor/       # Real-world Executor using Synergy AI
+├── synergy-executor/       # Real-world Executor using Synergy AI
+└── openclaw-executor/      # Executor with OpenClaw agent
 ```
 
 ### Package Dependencies
@@ -27,6 +29,7 @@ examples/
     ↑
     ├── @awcp/transport-sshfs
     ├── @awcp/transport-archive
+    ├── @awcp/transport-storage
     └── @awcp/sdk
               ↑
               └── @awcp/mcp

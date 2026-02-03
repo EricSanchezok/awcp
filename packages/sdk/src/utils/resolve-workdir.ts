@@ -6,10 +6,10 @@
  */
 
 import { join } from 'node:path';
-import type { EnvironmentSpec } from '@awcp/core';
+import type { EnvironmentDeclaration } from '@awcp/core';
 
 export interface WorkDirContext {
-  environment: EnvironmentSpec;
+  environment: EnvironmentDeclaration;
   workPath: string;
 }
 

@@ -2,14 +2,7 @@
  * AWCP Executor Service
  */
 
-import { randomUUID } from 'node:crypto';
 import { EventEmitter } from 'node:events';
-import type { Message } from '@a2a-js/sdk';
-import {
-  DefaultExecutionEventBus,
-  type AgentExecutor,
-  type AgentExecutionEvent,
-} from '@a2a-js/sdk/server';
 import {
   type InviteMessage,
   type StartMessage,
@@ -17,7 +10,7 @@ import {
   type ErrorMessage,
   type AwcpMessage,
   type TaskSpec,
-  type EnvironmentSpec,
+  type EnvironmentDeclaration,
   type ExecutorConstraints,
   type ExecutorTransportAdapter,
   type TaskEvent,
@@ -25,6 +18,10 @@ import {
   type TaskDoneEvent,
   type TaskErrorEvent,
   type ActiveLease,
+  type ExecutorRequestHandler,
+  type ExecutorServiceStatus,
+  type TaskExecutor,
+  type TaskResultResponse,
   PROTOCOL_VERSION,
   ErrorCodes,
   AwcpError,
@@ -43,33 +40,40 @@ interface ActiveDelegation {
   workPath: string;
   task: TaskSpec;
   lease: ActiveLease;
-  environment: EnvironmentSpec;
+  environment: EnvironmentDeclaration;
   startedAt: Date;
   eventEmitter: EventEmitter;
 }
 
-export interface ExecutorServiceStatus {
-  pendingInvitations: number;
-  activeDelegations: number;
-  delegations: Array<{
-    id: string;
-    workPath: string;
-    startedAt: string;
-  }>;
+interface CompletedDelegation {
+  id: string;
+  completedAt: Date;
+  state: 'completed' | 'error';
+  result?: {
+    summary: string;
+    highlights?: string[];
+    resultBase64?: string;
+  };
+  error?: {
+    code: string;
+    message: string;
+    hint?: string;
+  };
 }
 
 export interface ExecutorServiceOptions {
-  executor: AgentExecutor;
+  executor: TaskExecutor;
   config: ExecutorConfig;
 }
 
-export class ExecutorService {
-  private executor: AgentExecutor;
+export class ExecutorService implements ExecutorRequestHandler {
+  private executor: TaskExecutor;
   private config: ResolvedExecutorConfig;
   private transport: ExecutorTransportAdapter;
   private workspace: WorkspaceManager;
   private pendingInvitations = new Map<string, PendingInvitation>();
   private activeDelegations = new Map<string, ActiveDelegation>();
+  private completedDelegations = new Map<string, CompletedDelegation>();
 
   constructor(options: ExecutorServiceOptions) {
     this.executor = options.executor;
@@ -252,7 +256,7 @@ export class ExecutorService {
     workPath: string,
     task: TaskSpec,
     lease: ActiveLease,
-    environment: EnvironmentSpec,
+    environment: EnvironmentDeclaration,
     eventEmitter: EventEmitter,
   ): Promise<void> {
     try {
@@ -275,7 +279,12 @@ export class ExecutorService {
       };
       eventEmitter.emit('event', statusEvent);
 
-      const result = await this.executeViaA2A(actualPath, task, environment);
+      const result = await this.executor.execute({
+        delegationId,
+        workPath: actualPath,
+        task,
+        environment,
+      });
 
       const teardownResult = await this.transport.teardown({ delegationId, workDir: actualPath });
 
@@ -290,6 +299,18 @@ export class ExecutorService {
 
       eventEmitter.emit('event', doneEvent);
       this.config.hooks.onTaskComplete?.(delegationId, result.summary);
+
+      this.completedDelegations.set(delegationId, {
+        id: delegationId,
+        completedAt: new Date(),
+        state: 'completed',
+        result: {
+          summary: result.summary,
+          highlights: result.highlights,
+          resultBase64: teardownResult.resultBase64,
+        },
+      });
+      this.scheduleResultCleanup(delegationId);
 
       this.activeDelegations.delete(delegationId);
       await this.workspace.release(actualPath);
@@ -315,6 +336,18 @@ export class ExecutorService {
         error instanceof Error ? error : new Error(String(error))
       );
 
+      this.completedDelegations.set(delegationId, {
+        id: delegationId,
+        completedAt: new Date(),
+        state: 'error',
+        error: {
+          code: ErrorCodes.TASK_FAILED,
+          message: error instanceof Error ? error.message : String(error),
+          hint: 'Check task requirements and try again',
+        },
+      });
+      this.scheduleResultCleanup(delegationId);
+
       this.activeDelegations.delete(delegationId);
     }
   }
@@ -333,7 +366,7 @@ export class ExecutorService {
 
     this.config.hooks.onError?.(
       delegationId,
-      new AwcpError(error.code as any, error.message, error.hint, delegationId)
+      new AwcpError(error.code, error.message, error.hint, delegationId)
     );
   }
 
@@ -368,84 +401,57 @@ export class ExecutorService {
     throw new Error(`Delegation not found: ${delegationId}`);
   }
 
-  private async executeViaA2A(
-    workPath: string,
-    task: TaskSpec,
-    environment: EnvironmentSpec
-  ): Promise<{ summary: string; highlights?: string[] }> {
-    const message: Message = {
-      kind: 'message',
-      messageId: randomUUID(),
-      role: 'user',
-      parts: [
-        { kind: 'text', text: task.prompt },
-        {
-          kind: 'text',
-          text: this.formatAwcpContext(workPath, task, environment),
-        },
-      ],
-    };
-
-    const taskId = randomUUID();
-    const contextId = randomUUID();
-    const requestContext = new RequestContextImpl(message, taskId, contextId);
-
-    const eventBus = new DefaultExecutionEventBus();
-    const results: Message[] = [];
-
-    eventBus.on('event', (event: AgentExecutionEvent) => {
-      if (event.kind === 'message') {
-        results.push(event);
-      }
-    });
-
-    await this.executor.execute(requestContext, eventBus);
-
-    const summary = results
-      .flatMap((m) => m.parts)
-      .filter((p): p is { kind: 'text'; text: string } => p.kind === 'text')
-      .map((p) => p.text)
-      .join('\n');
-
-    return {
-      summary: summary || 'Task completed',
-    };
-  }
-
-  private formatAwcpContext(workPath: string, task: TaskSpec, environment: EnvironmentSpec): string {
-    const lines = [
-      '',
-      '[AWCP Context]',
-      `Task: ${task.description}`,
-      `Root: ${workPath}`,
-      '',
-      'Resources:',
-    ];
-
-    for (const resource of environment.resources) {
-      const resourcePath = `${workPath}/${resource.name}`;
-      lines.push(`  - ${resource.name}: ${resourcePath} (${resource.mode})`);
-    }
-
-    if (environment.resources.length === 1) {
-      const singleResource = environment.resources[0]!;
-      lines.push('');
-      lines.push(`Working directory: ${workPath}/${singleResource.name}`);
-    }
-
-    return lines.join('\n');
-  }
-
   getStatus(): ExecutorServiceStatus {
     return {
       pendingInvitations: this.pendingInvitations.size,
       activeDelegations: this.activeDelegations.size,
+      completedDelegations: this.completedDelegations.size,
       delegations: Array.from(this.activeDelegations.values()).map((d) => ({
         id: d.id,
         workPath: d.workPath,
         startedAt: d.startedAt.toISOString(),
       })),
     };
+  }
+
+  getTaskResult(delegationId: string): TaskResultResponse {
+    const active = this.activeDelegations.get(delegationId);
+    if (active) {
+      return { status: 'running' };
+    }
+
+    const completed = this.completedDelegations.get(delegationId);
+    if (completed) {
+      if (completed.state === 'completed') {
+        return {
+          status: 'completed',
+          completedAt: completed.completedAt.toISOString(),
+          summary: completed.result?.summary,
+          highlights: completed.result?.highlights,
+          resultBase64: completed.result?.resultBase64,
+        };
+      }
+      return {
+        status: 'error',
+        completedAt: completed.completedAt.toISOString(),
+        error: completed.error,
+      };
+    }
+
+    if (this.transport.type === 'sshfs') {
+      return {
+        status: 'not_applicable',
+        reason: 'SSHFS transport writes directly to source',
+      };
+    }
+
+    return { status: 'not_found' };
+  }
+
+  private scheduleResultCleanup(delegationId: string): void {
+    setTimeout(() => {
+      this.completedDelegations.delete(delegationId);
+    }, this.config.policy.resultRetentionMs);
   }
 
   private createErrorMessage(
@@ -462,20 +468,5 @@ export class ExecutorService {
       message,
       hint,
     };
-  }
-}
-
-class RequestContextImpl {
-  readonly userMessage: Message;
-  readonly taskId: string;
-  readonly contextId: string;
-  readonly task?: undefined;
-  readonly referenceTasks?: undefined;
-  readonly context?: undefined;
-
-  constructor(userMessage: Message, taskId: string, contextId: string) {
-    this.userMessage = userMessage;
-    this.taskId = taskId;
-    this.contextId = contextId;
   }
 }

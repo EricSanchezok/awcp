@@ -1,8 +1,11 @@
 # AWCP - Agent Workspace Collaboration Protocol
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
+[![npm version](https://img.shields.io/npm/v/@awcp/core.svg)](https://www.npmjs.com/package/@awcp/core)
 
 **AWCP enables AI agents to collaborate on real codebases.** A Delegator agent can share a local directory with an Executor agent, who can then read, write, and modify files using their native tools—as if the workspace were on their own machine.
+
+> **Status: v1.0 Beta** — Core protocol is stable and ready for integration testing. See [Roadmap](#roadmap) for planned features.
 
 ## Why AWCP?
 
@@ -82,18 +85,23 @@ console.log(result.result?.summary);
 ```typescript
 import express from 'express';
 import { executorHandler } from '@awcp/sdk/server/express';
+import { A2ATaskExecutor } from '@awcp/sdk';
 import { ArchiveTransport } from '@awcp/transport-archive';
 
 const app = express();
 
-app.use('/awcp', executorHandler({
-  executor: myAgentExecutor,  // Your A2A AgentExecutor implementation
+// Wrap your A2A executor with A2ATaskExecutor adapter
+const executor = new A2ATaskExecutor(myA2AExecutor);
+
+const awcp = await executorHandler({
+  executor,
   config: {
     workDir: '/tmp/awcp/workdir',
     transport: new ArchiveTransport({ executor: {} }),
   },
-}));
+});
 
+app.use('/awcp', awcp.router);
 app.listen(10200);
 ```
 
@@ -138,6 +146,7 @@ Key design principles:
 | [`@awcp/sdk`](packages/sdk) | Delegator and Executor service implementations |
 | [`@awcp/transport-archive`](packages/transport-archive) | Archive transport (HTTP + ZIP) |
 | [`@awcp/transport-sshfs`](packages/transport-sshfs) | SSHFS transport (SSH + mount) |
+| [`@awcp/transport-storage`](packages/transport-storage) | Storage transport (S3/HTTP + pre-signed URLs) |
 | [`@awcp/mcp`](packages/mcp) | MCP tools for AI agents |
 
 ## Transports
@@ -146,8 +155,9 @@ AWCP supports pluggable transports for the data plane:
 
 | Transport | Best For | How It Works |
 |-----------|----------|--------------|
-| **Archive** (default) | Remote executors, cloud environments | Workspace packaged as ZIP, transferred via HTTP |
-| **SSHFS** | Local executors, low latency needs | Real-time filesystem mount via SSH |
+| **Archive** | Remote executors, simple setup | Workspace as ZIP, inline in messages |
+| **Storage** | Large workspaces, cloud environments | Workspace as ZIP, via pre-signed URLs |
+| **SSHFS** | Local executors, low latency | Real-time filesystem mount via SSH |
 
 ### Archive Transport
 
@@ -201,6 +211,7 @@ See [examples/synergy-executor](examples/synergy-executor) for a complete Execut
 ## Documentation
 
 - **[Protocol Specification](docs/v1.md)** — Complete protocol design and message formats
+- **[Architecture Diagrams](docs/architecture.md)** — Visual overview of system components and data flow
 - **[MCP Tools Reference](packages/mcp/README.md)** — Configuration options for Claude Desktop
 - **[Development Guide](AGENTS.md)** — Architecture and contribution guidelines
 
@@ -213,6 +224,38 @@ Areas where we'd love help:
 - Language bindings (Python, Go, Rust)
 - Integration with other AI agent frameworks
 - Documentation and examples
+
+## Roadmap
+
+### ✅ Implemented (v1.0)
+- Core protocol: INVITE → ACCEPT → START → DONE/ERROR flow
+- State machine with 9 states and proper lifecycle management
+- Three transports: Archive, Storage, SSHFS
+- Lease-based sessions with TTL
+- Admission control (size/file count limits)
+- MCP tools for Claude Desktop integration
+- SSE-based async task execution
+- A2A protocol compatibility via adapter
+
+### 🚧 In Progress
+- S3 storage provider for `@awcp/transport-storage`
+- Lease expiration timer (auto-cleanup on TTL)
+
+### 📋 Planned
+- File filtering (`include`/`exclude` patterns in resources)
+- Progress tracking during task execution
+- Sandbox enforcement (cwdOnly, allowNetwork, allowExec)
+- Auth metadata handling for Executor authentication
+- WebSocket tunnel listener (NAT traversal)
+- Python SDK
+- Additional transports: WebDAV, rsync
+
+### 💡 Under Consideration
+- Git-based collaboration mode (branch per delegation)
+- Multi-executor task orchestration
+- Decentralized identity (DID) for trust
+
+See [Protocol Specification](docs/v1.md) §9 for detailed limitations and future directions.
 
 ## License
 

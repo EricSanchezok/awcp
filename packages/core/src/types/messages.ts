@@ -6,6 +6,7 @@ export type AccessMode = 'ro' | 'rw';
 
 export type ResourceType = 'fs';
 
+/** Full resource specification - Delegator internal use */
 export interface ResourceSpec {
   name: string;
   type: ResourceType;
@@ -17,8 +18,20 @@ export interface ResourceSpec {
   exclude?: string[];
 }
 
+/** Resource declaration for INVITE */
+export interface ResourceDeclaration {
+  name: string;
+  type: ResourceType;
+  mode: AccessMode;
+}
+
 export interface EnvironmentSpec {
   resources: ResourceSpec[];
+}
+
+/** Environment declaration for INVITE */
+export interface EnvironmentDeclaration {
+  resources: ResourceDeclaration[];
 }
 
 export type AuthType = 'api_key' | 'bearer' | 'oauth2' | 'custom';
@@ -30,7 +43,7 @@ export interface AuthCredential {
   metadata?: Record<string, string>;
 }
 
-export type TransportType = 'sshfs' | 'archive';
+export type TransportType = 'sshfs' | 'archive' | 'storage';
 
 export type DelegationState =
   | 'created'
@@ -91,12 +104,7 @@ export interface SshCredential {
   certificate: string;
 }
 
-export interface WorkDirInfo {
-  transport: TransportType;
-  [key: string]: unknown;
-}
-
-export interface SshfsWorkDirInfo extends WorkDirInfo {
+export interface SshfsWorkDirInfo {
   transport: 'sshfs';
   endpoint: SshEndpoint;
   exportLocator: string;
@@ -104,11 +112,22 @@ export interface SshfsWorkDirInfo extends WorkDirInfo {
   options?: Record<string, string>;
 }
 
-export interface ArchiveWorkDirInfo extends WorkDirInfo {
+export interface ArchiveWorkDirInfo {
   transport: 'archive';
   workspaceBase64: string;
   checksum: string;
 }
+
+export interface StorageWorkDirInfo {
+  transport: 'storage';
+  downloadUrl: string;
+  uploadUrl: string;
+  checksum: string;
+  expiresAt: string;
+  headers?: Record<string, string>;
+}
+
+export type WorkDirInfo = SshfsWorkDirInfo | ArchiveWorkDirInfo | StorageWorkDirInfo;
 
 export interface BaseMessage {
   version: typeof PROTOCOL_VERSION;
@@ -121,7 +140,7 @@ export interface InviteMessage extends BaseMessage {
   type: 'INVITE';
   task: TaskSpec;
   lease: LeaseConfig;
-  environment: EnvironmentSpec;
+  environment: EnvironmentDeclaration;
   requirements?: Requirements;
   auth?: AuthCredential;
 }

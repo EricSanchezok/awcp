@@ -7,21 +7,19 @@
 import { randomUUID } from 'node:crypto';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import * as os from 'node:os';
 import {
   type Delegation,
-  type TaskSpec,
-  type EnvironmentSpec,
   type InviteMessage,
   type StartMessage,
   type AcceptMessage,
   type DoneMessage,
   type ErrorMessage,
   type AwcpMessage,
-  type AccessMode,
-  type AuthCredential,
   type DelegatorTransportAdapter,
   type TaskEvent,
+  type DelegatorServiceStatus,
+  type DelegatorRequestHandler,
+  type DelegateParams,
   DelegationStateMachine,
   createDelegation,
   applyMessageToDelegation,
@@ -36,31 +34,11 @@ import { AdmissionController } from './admission.js';
 import { EnvironmentBuilder } from './environment-builder.js';
 import { ExecutorClient } from './executor-client.js';
 
-export interface DelegateParams {
-  executorUrl: string;
-  environment: EnvironmentSpec;
-  task: TaskSpec;
-  ttlSeconds?: number;
-  accessMode?: AccessMode;
-  auth?: AuthCredential;
-}
-
-export interface DelegatorServiceStatus {
-  activeDelegations: number;
-  delegations: Array<{
-    id: string;
-    state: string;
-    executorUrl: string;
-    environment: EnvironmentSpec;
-    createdAt: string;
-  }>;
-}
-
 export interface DelegatorServiceOptions {
   config: DelegatorConfig;
 }
 
-export class DelegatorService {
+export class DelegatorService implements DelegatorRequestHandler {
   private config: ResolvedDelegatorConfig;
   private transport: DelegatorTransportAdapter;
   private admissionController: AdmissionController;
@@ -81,7 +59,7 @@ export class DelegatorService {
     });
 
     this.environmentBuilder = new EnvironmentBuilder({
-      baseDir: this.config.export.baseDir,
+      baseDir: this.config.environment.baseDir,
     });
 
     this.executorClient = new ExecutorClient();
@@ -131,16 +109,20 @@ export class DelegatorService {
       delegationId,
       task: params.task,
       lease: { ttlSeconds, accessMode },
-      environment: params.environment,
+      environment: {
+        resources: params.environment.resources.map(r => ({
+          name: r.name,
+          type: r.type,
+          mode: r.mode,
+        })),
+      },
       requirements: {
         transport: this.transport.type,
       },
       ...(params.auth && { auth: params.auth }),
     };
 
-    stateMachine.transition({ type: 'SEND_INVITE', message: inviteMessage });
-    delegation.state = stateMachine.getState();
-    delegation.updatedAt = new Date().toISOString();
+    this.transitionState(delegationId, { type: 'SEND_INVITE', message: inviteMessage });
 
     try {
       const response = await this.executorClient.sendInvite(params.executorUrl, inviteMessage);
@@ -148,7 +130,7 @@ export class DelegatorService {
       if (response.type === 'ERROR') {
         await this.handleError(response);
         throw new AwcpError(
-          response.code as any,
+          response.code,
           response.message,
           response.hint,
           delegationId
@@ -172,17 +154,15 @@ export class DelegatorService {
       return;
     }
 
-    const stateMachine = this.stateMachines.get(message.delegationId)!;
     const executorUrl = this.executorUrls.get(message.delegationId)!;
 
-    const result = stateMachine.transition({ type: 'RECEIVE_ACCEPT', message });
+    const result = this.transitionState(message.delegationId, { type: 'RECEIVE_ACCEPT', message });
     if (!result.success) {
       console.error(`[AWCP:Delegator] State transition failed: ${result.error}`);
       return;
     }
 
     const updated = applyMessageToDelegation(delegation, message);
-    updated.state = stateMachine.getState();
     this.delegations.set(delegation.id, updated);
 
     const { workDirInfo } = await this.transport.prepare({
@@ -206,10 +186,8 @@ export class DelegatorService {
       workDir: workDirInfo,
     };
 
-    stateMachine.transition({ type: 'SEND_START', message: startMessage });
-    updated.state = stateMachine.getState();
+    this.transitionState(delegation.id, { type: 'SEND_START', message: startMessage });
     updated.activeLease = startMessage.lease;
-    updated.updatedAt = new Date().toISOString();
     this.delegations.set(delegation.id, updated);
 
     await this.executorClient.sendStart(executorUrl, startMessage);
@@ -251,10 +229,7 @@ export class DelegatorService {
     const stateMachine = this.stateMachines.get(delegationId)!;
 
     if (event.type === 'status' && stateMachine.getState() === 'started') {
-      stateMachine.transition({ type: 'SETUP_COMPLETE' });
-      delegation.state = stateMachine.getState();
-      delegation.updatedAt = new Date().toISOString();
-      this.delegations.set(delegationId, delegation);
+      this.transitionState(delegationId, { type: 'SETUP_COMPLETE' });
     }
 
     if (event.type === 'done') {
@@ -288,28 +263,25 @@ export class DelegatorService {
   /**
    * Apply result from Executor back to original workspace
    */
-  private async applyResult(delegationId: string, resultBase64: string): Promise<void> {
+  private async applyResult(delegationId: string, resultData: string): Promise<void> {
+    const delegation = this.delegations.get(delegationId);
+    if (!delegation) return;
+
+    const env = this.environmentBuilder.get(delegationId);
+    if (!env) return;
+
+    const rwResources = delegation.environment.resources.filter(r => r.mode === 'rw');
+    if (rwResources.length === 0) return;
+
     try {
-      const buffer = Buffer.from(resultBase64, 'base64');
-      
-      const tempDir = path.join(os.tmpdir(), 'awcp-results');
-      await fs.mkdir(tempDir, { recursive: true });
-      const archivePath = path.join(tempDir, `${delegationId}-result.zip`);
-      await fs.writeFile(archivePath, buffer);
-
-      const extractDir = path.join(tempDir, delegationId);
-      await fs.mkdir(extractDir, { recursive: true });
-
-      const { exec } = await import('node:child_process');
-      const { promisify } = await import('node:util');
-      const execAsync = promisify(exec);
-      await execAsync(`unzip -o "${archivePath}" -d "${extractDir}"`);
-
-      await this.environmentBuilder.applyResult(delegationId, extractDir);
-
-      await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
-
-      console.log(`[AWCP:Delegator] Applied result for ${delegationId}`);
+      if (this.transport.applyResult) {
+        await this.transport.applyResult({
+          delegationId,
+          resultData,
+          resources: rwResources.map(r => ({ name: r.name, source: r.source, mode: r.mode })),
+        });
+        console.log(`[AWCP:Delegator] Applied result for ${delegationId}`);
+      }
     } catch (error) {
       console.error(`[AWCP:Delegator] Failed to apply result for ${delegationId}:`, error);
     }
@@ -325,17 +297,16 @@ export class DelegatorService {
     const stateMachine = this.stateMachines.get(message.delegationId)!;
 
     if (stateMachine.getState() === 'started') {
-      stateMachine.transition({ type: 'SETUP_COMPLETE' });
+      this.transitionState(message.delegationId, { type: 'SETUP_COMPLETE' });
     }
 
-    const result = stateMachine.transition({ type: 'RECEIVE_DONE', message });
+    const result = this.transitionState(message.delegationId, { type: 'RECEIVE_DONE', message });
     if (!result.success) {
       console.error(`[AWCP:Delegator] State transition failed: ${result.error}`);
       return;
     }
 
     const updated = applyMessageToDelegation(delegation, message);
-    updated.state = stateMachine.getState();
     this.delegations.set(delegation.id, updated);
 
     await this.cleanup(delegation.id);
@@ -349,17 +320,15 @@ export class DelegatorService {
       return;
     }
 
-    const stateMachine = this.stateMachines.get(message.delegationId)!;
-    stateMachine.transition({ type: 'RECEIVE_ERROR', message });
+    this.transitionState(message.delegationId, { type: 'RECEIVE_ERROR', message });
 
     const updated = applyMessageToDelegation(delegation, message);
-    updated.state = stateMachine.getState();
     this.delegations.set(delegation.id, updated);
 
     await this.cleanup(delegation.id);
 
     const error = new AwcpError(
-      message.code as any,
+      message.code,
       message.message,
       message.hint,
       delegation.id
@@ -389,23 +358,76 @@ export class DelegatorService {
       throw new Error(`Unknown delegation: ${delegationId}`);
     }
 
-    const stateMachine = this.stateMachines.get(delegationId)!;
     const executorUrl = this.executorUrls.get(delegationId)!;
 
-    const result = stateMachine.transition({ type: 'CANCEL' });
+    const result = this.transitionState(delegationId, { type: 'CANCEL' });
     if (!result.success) {
       throw new Error(`Cannot cancel delegation in state ${delegation.state}`);
     }
 
     await this.executorClient.sendCancel(executorUrl, delegationId).catch(console.error);
     await this.cleanup(delegationId);
-
-    delegation.state = stateMachine.getState();
-    delegation.updatedAt = new Date().toISOString();
   }
 
   getDelegation(delegationId: string): Delegation | undefined {
     return this.delegations.get(delegationId);
+  }
+
+  /**
+   * Fetch result from Executor and apply to original workspace.
+   * Use this when SSE connection was lost and delegation result needs recovery.
+   */
+  async fetchAndApplyResult(delegationId: string): Promise<Delegation> {
+    const delegation = this.delegations.get(delegationId);
+    if (!delegation) {
+      throw new Error(`Unknown delegation: ${delegationId}`);
+    }
+
+    const executorUrl = this.executorUrls.get(delegationId);
+    if (!executorUrl) {
+      throw new Error(`No executor URL for delegation: ${delegationId}`);
+    }
+
+    const result = await this.executorClient.fetchResult(executorUrl, delegationId);
+
+    if (result.status === 'running') {
+      throw new Error('Task still running');
+    }
+
+    if (result.status === 'not_found') {
+      throw new Error('Task result not found or expired');
+    }
+
+    if (result.status === 'not_applicable') {
+      delegation.state = 'completed';
+      delegation.updatedAt = new Date().toISOString();
+      await this.cleanup(delegationId);
+      return delegation;
+    }
+
+    if (result.status === 'error') {
+      delegation.state = 'error';
+      delegation.error = result.error;
+      delegation.updatedAt = new Date().toISOString();
+      await this.cleanup(delegationId);
+      return delegation;
+    }
+
+    if (result.resultBase64) {
+      await this.applyResult(delegationId, result.resultBase64);
+    }
+
+    delegation.state = 'completed';
+    delegation.result = {
+      summary: result.summary ?? '',
+      highlights: result.highlights,
+    };
+    delegation.updatedAt = new Date().toISOString();
+
+    await this.cleanup(delegationId);
+    this.config.hooks.onDelegationCompleted?.(delegation);
+
+    return delegation;
   }
 
   async waitForCompletion(delegationId: string, timeoutMs: number = 60000): Promise<Delegation> {
@@ -421,7 +443,7 @@ export class DelegatorService {
       if (stateMachine.isTerminal()) {
         if (delegation.error) {
           throw new AwcpError(
-            delegation.error.code as any,
+            delegation.error.code,
             delegation.error.message,
             delegation.error.hint,
             delegationId
@@ -453,6 +475,23 @@ export class DelegatorService {
     await this.transport.cleanup(delegationId);
     await this.environmentBuilder.release(delegationId);
     this.executorUrls.delete(delegationId);
+  }
+
+  /**
+   * Transition delegation state and keep delegation.state in sync
+   */
+  private transitionState(
+    delegationId: string,
+    event: Parameters<DelegationStateMachine['transition']>[0]
+  ): ReturnType<DelegationStateMachine['transition']> {
+    const sm = this.stateMachines.get(delegationId)!;
+    const delegation = this.delegations.get(delegationId)!;
+    const result = sm.transition(event);
+    if (result.success) {
+      delegation.state = sm.getState();
+      delegation.updatedAt = new Date().toISOString();
+    }
+    return result;
   }
 
   /**
