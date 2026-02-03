@@ -6,6 +6,7 @@ import type {
   AwcpMessage,
   TaskEvent,
   EnvironmentSpec,
+  EnvironmentDeclaration,
   TaskSpec,
   AccessMode,
   AuthCredential,
@@ -18,7 +19,7 @@ export interface TaskExecutionContext {
   delegationId: string;
   workPath: string;
   task: TaskSpec;
-  environment: EnvironmentSpec;
+  environment: EnvironmentDeclaration;
 }
 
 export interface TaskExecutionResult {

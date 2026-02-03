@@ -9,7 +9,7 @@ import type {
   ExecutorTransportAdapter,
   ActiveLease,
   TaskSpec,
-  EnvironmentSpec,
+  EnvironmentDeclaration,
   ListenerAdapter,
   ListenerInfo,
 } from '@awcp/core';
@@ -26,7 +26,7 @@ export interface TaskStartContext {
   workPath: string;
   task: TaskSpec;
   lease: ActiveLease;
-  environment: EnvironmentSpec;
+  environment: EnvironmentDeclaration;
 }
 
 export interface ExecutorHooks {
