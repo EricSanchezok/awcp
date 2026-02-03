@@ -1,9 +1,6 @@
 import { stat, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { DEFAULT_ADMISSION } from './config.js';
-import { ResourceSpec} from "@awcp/core";
-import { minimatch } from 'minimatch'
-import { relative } from 'node:path'
 
 /**
  * Admission control configuration
@@ -36,28 +33,6 @@ export interface AdmissionResult {
   stats?: WorkspaceStats;
   hint?: string;
 }
-
-/**
- * 检查文件是否应该被包含
- * @param filePath 文件相对路径（相对于工作目录）
- * @param resourceSpec 资源规格
- * @returns 是否包含该文件
- */
-function shouldIncludeFile(filePath: string, resourceSpec: ResourceSpec): boolean {
-  // 如果有 include 规则，检查是否匹配
-  if (resourceSpec.include && resourceSpec.include.length > 0) {
-    const isIncluded = resourceSpec.include.some(pattern => minimatch(filePath, pattern));
-    if (!isIncluded) return false;
-  }
-  // 如果有 exclude 规则，检查是否匹配
-  if (resourceSpec.exclude && resourceSpec.exclude.length > 0) {
-    const isExcluded = resourceSpec.exclude.some(pattern => minimatch(filePath, pattern));
-    if (isExcluded) return false;
-  }
-  // 如果没有 include 规则，默认包含所有文件
-  return true;
-}
-
 
 /**
  * Performs preflight checks on workspace before allowing delegation.
@@ -115,7 +90,7 @@ export class AdmissionController {
     }
   }
 
-  private async scanWorkspace(localDir: string, resourceSpec?:ResourceSpec): Promise<WorkspaceStats> {
+  private async scanWorkspace(localDir: string): Promise<WorkspaceStats> {
     let totalBytes = 0;
     let fileCount = 0;
     let largestFileBytes = 0;
@@ -125,22 +100,14 @@ export class AdmissionController {
 
       for (const entry of entries) {
         const fullPath = join(dir, entry.name);
-        const relativePath = relative(localDir, fullPath);
+
         if (entry.isDirectory()) {
           // Skip directories that shouldn't be delegated
           if (entry.name === 'node_modules' || entry.name === '.git') {
             continue;
           }
-          // skip the excluded file
-          if (resourceSpec && !shouldIncludeFile(relativePath, resourceSpec)) {
-            continue;
-          }
           await scan(fullPath);
         } else if (entry.isFile()) {
-          // skip the excluded file
-          if (resourceSpec && !shouldIncludeFile(relativePath, resourceSpec)) {
-            continue;
-          }
           try {
             const fileStat = await stat(fullPath);
             const size = fileStat.size;
