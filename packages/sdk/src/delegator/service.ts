@@ -237,6 +237,11 @@ export class DelegatorService implements DelegatorRequestHandler {
         await this.applyResult(delegationId, event.resultBase64);
       }
 
+      const executorUrl = this.executorUrls.get(delegationId);
+      if (executorUrl) {
+        await this.executorClient.acknowledgeResult(executorUrl, delegationId).catch(() => {});
+      }
+
       const doneMessage: DoneMessage = {
         version: PROTOCOL_VERSION,
         type: 'DONE',
@@ -416,6 +421,8 @@ export class DelegatorService implements DelegatorRequestHandler {
     if (result.resultBase64) {
       await this.applyResult(delegationId, result.resultBase64);
     }
+
+    await this.executorClient.acknowledgeResult(executorUrl, delegationId).catch(() => {});
 
     delegation.state = 'completed';
     delegation.result = {

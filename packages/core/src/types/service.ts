@@ -68,6 +68,7 @@ export interface ExecutorRequestHandler {
   handleMessage(message: AwcpMessage): Promise<AwcpMessage | null>;
   subscribeTask(delegationId: string, callback: (event: TaskEvent) => void): () => void;
   getTaskResult(delegationId: string): TaskResultResponse;
+  acknowledgeResult(delegationId: string): void;
   cancelDelegation(delegationId: string): Promise<void>;
   getStatus(): ExecutorServiceStatus;
 }

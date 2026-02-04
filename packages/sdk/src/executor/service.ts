@@ -448,6 +448,10 @@ export class ExecutorService implements ExecutorRequestHandler {
     return { status: 'not_found' };
   }
 
+  acknowledgeResult(delegationId: string): void {
+    this.completedDelegations.delete(delegationId);
+  }
+
   private scheduleResultCleanup(delegationId: string): void {
     setTimeout(() => {
       this.completedDelegations.delete(delegationId);
