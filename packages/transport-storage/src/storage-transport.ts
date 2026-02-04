@@ -11,12 +11,13 @@ import * as os from 'node:os';
 import * as crypto from 'node:crypto';
 import type {
   TransportAdapter,
+  TransportCapabilities,
   TransportPrepareParams,
   TransportPrepareResult,
   TransportSetupParams,
   TransportTeardownParams,
   TransportTeardownResult,
-  TransportApplyResultParams,
+  TransportApplySnapshotParams,
   DependencyCheckResult,
   StorageWorkDirInfo,
 } from '@awcp/core';
@@ -28,6 +29,10 @@ import { LocalStorageProvider } from './delegator/local-storage.js';
 
 export class StorageTransport implements TransportAdapter {
   readonly type = 'storage' as const;
+  readonly capabilities: TransportCapabilities = {
+    supportsSnapshots: true,
+    liveSync: false,
+  };
 
   private provider?: StorageProvider;
   private tempDir: string;
@@ -90,18 +95,18 @@ export class StorageTransport implements TransportAdapter {
     return { workDirInfo };
   }
 
-  async applyResult(params: TransportApplyResultParams): Promise<void> {
-    const { delegationId, resultData, resources } = params;
+  async applySnapshot(params: TransportApplySnapshotParams): Promise<void> {
+    const { delegationId, snapshotData, resources } = params;
 
-    const resultInfo = JSON.parse(resultData) as { resultUrl: string };
+    const snapshotInfo = JSON.parse(snapshotData) as { resultUrl: string };
 
     await fs.promises.mkdir(this.tempDir, { recursive: true });
     const archivePath = path.join(this.tempDir, `${delegationId}-apply.zip`);
     const extractDir = path.join(this.tempDir, `${delegationId}-apply`);
 
-    const response = await fetch(resultInfo.resultUrl);
+    const response = await fetch(snapshotInfo.resultUrl);
     if (!response.ok) {
-      throw new TransportError(`Failed to download result: ${response.status}`);
+      throw new TransportError(`Failed to download snapshot: ${response.status}`);
     }
     const buffer = Buffer.from(await response.arrayBuffer());
     await fs.promises.writeFile(archivePath, buffer);
@@ -164,7 +169,6 @@ export class StorageTransport implements TransportAdapter {
   async teardown(params: TransportTeardownParams): Promise<TransportTeardownResult> {
     const { delegationId, workDir } = params;
 
-    // Get stored workDirInfo
     const info = this.activeSetups.get(delegationId);
     this.activeSetups.delete(delegationId);
 
@@ -175,7 +179,6 @@ export class StorageTransport implements TransportAdapter {
 
     const buffer = await fs.promises.readFile(archivePath);
 
-    // If we have an upload URL, upload the result and return the URL
     if (info?.uploadUrl) {
       const response = await fetch(info.uploadUrl, {
         method: 'PUT',
@@ -188,18 +191,16 @@ export class StorageTransport implements TransportAdapter {
       await fs.promises.unlink(archivePath);
 
       if (!response.ok) {
-        throw new TransportError(`Failed to upload result: ${response.status}`);
+        throw new TransportError(`Failed to upload snapshot: ${response.status}`);
       }
 
-      // Return JSON with result URL
-      const resultBase64 = JSON.stringify({ resultUrl: info.uploadUrl });
-      return { resultBase64 };
+      const snapshotBase64 = JSON.stringify({ resultUrl: info.uploadUrl });
+      return { snapshotBase64 };
     }
 
-    // Fallback: return raw base64 (for compatibility)
-    const resultBase64 = buffer.toString('base64');
+    const snapshotBase64 = buffer.toString('base64');
     await fs.promises.unlink(archivePath);
 
-    return { resultBase64 };
+    return { snapshotBase64 };
   }
 }

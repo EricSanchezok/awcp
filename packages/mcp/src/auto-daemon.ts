@@ -153,9 +153,7 @@ async function createDefaultConfig(options: AutoDaemonOptions): Promise<Delegato
   }
 
   return {
-    environment: {
-      baseDir: environmentDir,
-    },
+    baseDir: environmentDir,
     transport,
     admission: {
       maxTotalBytes: options.maxTotalBytes,

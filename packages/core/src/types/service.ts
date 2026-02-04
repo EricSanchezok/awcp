@@ -55,7 +55,7 @@ export interface TaskResultResponse {
   completedAt?: string;
   summary?: string;
   highlights?: string[];
-  resultBase64?: string;
+  snapshotBase64?: string;
   error?: {
     code: string;
     message: string;

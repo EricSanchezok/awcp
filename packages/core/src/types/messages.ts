@@ -184,7 +184,9 @@ export type AwcpMessage =
 
 // --- Task Events (SSE Streaming) ---
 
-export type TaskEventType = 'status' | 'done' | 'error';
+import type { SnapshotMetadata } from './snapshot.js';
+
+export type TaskEventType = 'status' | 'snapshot' | 'done' | 'error';
 
 export interface BaseTaskEvent {
   delegationId: string;
@@ -200,11 +202,22 @@ export interface TaskStatusEvent extends BaseTaskEvent {
   progress?: number;
 }
 
+export interface TaskSnapshotEvent extends BaseTaskEvent {
+  type: 'snapshot';
+  snapshotId: string;
+  summary: string;
+  highlights?: string[];
+  snapshotBase64: string;
+  recommended?: boolean;
+  metadata?: SnapshotMetadata;
+}
+
 export interface TaskDoneEvent extends BaseTaskEvent {
   type: 'done';
   summary: string;
   highlights?: string[];
-  resultBase64?: string;
+  snapshotIds?: string[];
+  recommendedSnapshotId?: string;
 }
 
 export interface TaskErrorEvent extends BaseTaskEvent {
@@ -214,9 +227,11 @@ export interface TaskErrorEvent extends BaseTaskEvent {
   hint?: string;
 }
 
-export type TaskEvent = TaskStatusEvent | TaskDoneEvent | TaskErrorEvent;
+export type TaskEvent = TaskStatusEvent | TaskSnapshotEvent | TaskDoneEvent | TaskErrorEvent;
 
 // --- Delegation Record ---
+
+import type { EnvironmentSnapshot, SnapshotPolicyConfig } from './snapshot.js';
 
 export interface Delegation {
   id: string;
@@ -229,11 +244,9 @@ export interface Delegation {
   activeLease?: ActiveLease;
   executorWorkDir?: ExecutorWorkDir;
   executorConstraints?: ExecutorConstraints;
-  result?: {
-    summary: string;
-    highlights?: string[];
-    notes?: string;
-  };
+  snapshots?: EnvironmentSnapshot[];
+  appliedSnapshotId?: string;
+  snapshotPolicy?: SnapshotPolicyConfig;
   error?: {
     code: string;
     message: string;
