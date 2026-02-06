@@ -99,6 +99,7 @@ export class DelegatorService implements DelegatorRequestHandler {
 
     const ttlSeconds = params.ttlSeconds ?? this.config.defaults.ttlSeconds;
     const accessMode = params.accessMode ?? this.config.defaults.accessMode;
+    const snapshotMode = params.snapshotMode ?? this.config.snapshot.mode;
 
     const delegation = createDelegation({
       id: delegationId,
@@ -109,7 +110,7 @@ export class DelegatorService implements DelegatorRequestHandler {
     });
 
     delegation.snapshotPolicy = {
-      mode: this.config.snapshot.mode,
+      mode: snapshotMode,
       retentionMs: this.config.snapshot.retentionMs,
       maxSnapshots: this.config.snapshot.maxSnapshots,
     };

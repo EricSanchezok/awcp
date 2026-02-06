@@ -9,79 +9,60 @@ import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 import type { DelegatorConfig } from '@awcp/sdk';
-import type { AccessMode } from '@awcp/core';
+import type { AccessMode, SnapshotPolicy, GitCredential } from '@awcp/core';
 import { startDelegatorDaemon, type DaemonInstance } from '@awcp/sdk/delegator/daemon';
 import { ArchiveTransport } from '@awcp/transport-archive';
 
-/**
- * Options for auto-starting the daemon
- */
 export interface AutoDaemonOptions {
   // === Daemon ===
-  /** Port for the daemon (default: 3100) */
   port?: number;
-  /** Timeout in ms to wait for daemon to start (default: 10000) */
   startTimeout?: number;
 
   // === Environment ===
-  /** Directory for environment builds (default: ~/.awcp/environments) */
   environmentDir?: string;
 
   // === Transport ===
-  /** Transport type (default: archive) */
   transport?: 'archive' | 'sshfs' | 'storage' | 'git';
 
   // === Admission Control ===
-  /** Maximum total bytes for workspace (default: 100MB) */
   maxTotalBytes?: number;
-  /** Maximum file count (default: 10000) */
   maxFileCount?: number;
-  /** Maximum single file size in bytes (default: 50MB) */
   maxSingleFileBytes?: number;
 
+  // === Snapshot ===
+  snapshotMode?: SnapshotPolicy;
+
   // === Defaults ===
-  /** Default TTL in seconds (default: 3600) */
   defaultTtl?: number;
-  /** Default access mode: ro or rw (default: rw) */
   defaultAccessMode?: AccessMode;
 
   // === Archive Transport Options ===
-  /** Directory for temp files (default: ~/.awcp/temp) */
   tempDir?: string;
 
   // === SSHFS Transport Options ===
-  /** Path to CA private key (required for SSHFS) */
   sshCaKey?: string;
-  /** SSH server host (default: localhost) */
   sshHost?: string;
-  /** SSH server port (default: 22) */
   sshPort?: number;
-  /** SSH username (default: current user) */
   sshUser?: string;
-  /** Directory for SSH keys (default: ~/.awcp/keys) */
   sshKeyDir?: string;
 
   // === Storage Transport Options ===
-  /** Storage base URL for download/upload */
   storageEndpoint?: string;
-  /** Local directory for storage files (for local provider) */
   storageLocalDir?: string;
 
   // === Git Transport Options ===
-  /** Git remote URL (required for git transport) */
   gitRemoteUrl?: string;
+  gitAuthType?: 'token' | 'ssh' | 'none';
+  gitToken?: string;
+  gitSshKeyPath?: string;
+  gitBranchPrefix?: string;
+  gitCleanupRemoteBranch?: boolean;
 }
 
-/**
- * Default AWCP directory
- */
 function getAwcpDir(): string {
   return process.env.AWCP_HOME || join(homedir(), '.awcp');
 }
 
-/**
- * Check if daemon is running by hitting health endpoint
- */
 async function isDaemonRunning(url: string): Promise<boolean> {
   try {
     const res = await fetch(`${url}/health`, { signal: AbortSignal.timeout(2000) });
@@ -91,9 +72,6 @@ async function isDaemonRunning(url: string): Promise<boolean> {
   }
 }
 
-/**
- * Wait for daemon to become healthy
- */
 async function waitForDaemon(url: string, timeoutMs: number): Promise<boolean> {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
@@ -105,23 +83,34 @@ async function waitForDaemon(url: string, timeoutMs: number): Promise<boolean> {
   return false;
 }
 
-/**
- * Create default delegator config
- */
+function buildGitAuth(options: AutoDaemonOptions): GitCredential {
+  const authType = options.gitAuthType ?? 'none';
+
+  if (authType === 'token' && options.gitToken) {
+    return { type: 'token', token: options.gitToken };
+  }
+
+  if (authType === 'ssh') {
+    // TODO: Load SSH private key from gitSshKeyPath if provided
+    return { type: 'ssh' };
+  }
+
+  return { type: 'none' };
+}
+
 async function createDefaultConfig(options: AutoDaemonOptions): Promise<DelegatorConfig> {
   const awcpDir = getAwcpDir();
   const environmentDir = options.environmentDir || join(awcpDir, 'environments');
   const tempDir = options.tempDir || join(awcpDir, 'temp');
 
-  // Create transport based on type
   let transport;
   if (options.transport === 'sshfs') {
     const { SshfsTransport } = await import('@awcp/transport-sshfs');
-    
+
     if (!options.sshCaKey) {
       throw new Error('SSHFS transport requires --ssh-ca-key option');
     }
-    
+
     transport = new SshfsTransport({
       delegator: {
         caKeyPath: options.sshCaKey,
@@ -133,11 +122,11 @@ async function createDefaultConfig(options: AutoDaemonOptions): Promise<Delegato
     });
   } else if (options.transport === 'storage') {
     const { StorageTransport } = await import('@awcp/transport-storage');
-    
+
     if (!options.storageEndpoint) {
       throw new Error('Storage transport requires --storage-endpoint option');
     }
-    
+
     transport = new StorageTransport({
       delegator: {
         provider: {
@@ -150,16 +139,18 @@ async function createDefaultConfig(options: AutoDaemonOptions): Promise<Delegato
     });
   } else if (options.transport === 'git') {
     const { GitTransport } = await import('@awcp/transport-git');
-    
+
     if (!options.gitRemoteUrl) {
       throw new Error('Git transport requires --git-remote-url option');
     }
-    
+
     transport = new GitTransport({
       delegator: {
         remoteUrl: options.gitRemoteUrl,
-        auth: { type: 'none' },
+        auth: buildGitAuth(options),
         tempDir,
+        branchPrefix: options.gitBranchPrefix,
+        cleanupRemoteBranch: options.gitCleanupRemoteBranch,
       },
     });
   } else {
@@ -178,6 +169,9 @@ async function createDefaultConfig(options: AutoDaemonOptions): Promise<Delegato
       maxFileCount: options.maxFileCount,
       maxSingleFileBytes: options.maxSingleFileBytes,
     },
+    snapshot: {
+      mode: options.snapshotMode,
+    },
     defaults: {
       ttlSeconds: options.defaultTtl,
       accessMode: options.defaultAccessMode,
@@ -185,9 +179,6 @@ async function createDefaultConfig(options: AutoDaemonOptions): Promise<Delegato
   };
 }
 
-/**
- * Ensure AWCP directories exist
- */
 async function ensureDirectories(options: AutoDaemonOptions): Promise<void> {
   const awcpDir = getAwcpDir();
   const environmentDir = options.environmentDir || join(awcpDir, 'environments');
@@ -198,12 +189,6 @@ async function ensureDirectories(options: AutoDaemonOptions): Promise<void> {
   await mkdir(tempDir, { recursive: true });
 }
 
-/**
- * Start daemon in-process
- *
- * This starts the daemon in the same process as the MCP server.
- * Simpler but means the daemon dies when MCP server dies.
- */
 export async function startInProcessDaemon(
   options: AutoDaemonOptions = {}
 ): Promise<DaemonInstance> {
@@ -221,12 +206,6 @@ export async function startInProcessDaemon(
   return daemon;
 }
 
-/**
- * Ensure daemon is running, starting it if necessary
- *
- * Returns the daemon URL. If daemon is already running, just returns the URL.
- * If not running, starts it in-process and returns the URL.
- */
 export async function ensureDaemonRunning(
   options: AutoDaemonOptions = {}
 ): Promise<{ url: string; daemon?: DaemonInstance }> {
@@ -234,19 +213,16 @@ export async function ensureDaemonRunning(
   const url = `http://localhost:${port}`;
   const startTimeout = options.startTimeout ?? 10000;
 
-  // Check if already running
   if (await isDaemonRunning(url)) {
     console.error(`[AWCP] Daemon already running at ${url}`);
     return { url };
   }
 
-  // Start daemon in-process
   console.error(`[AWCP] Starting Delegator Daemon on port ${port}...`);
 
   try {
     const daemon = await startInProcessDaemon(options);
 
-    // Wait for it to be ready
     if (await waitForDaemon(url, startTimeout)) {
       console.error(`[AWCP] Daemon started successfully at ${url}`);
       return { url, daemon };

@@ -1,8 +1,5 @@
 /**
  * delegate tool - Initiate a workspace delegation to a remote Executor
- *
- * This tool allows an AI agent to delegate a local directory to a remote
- * Executor agent for collaborative task execution.
  */
 
 import { z } from 'zod';
@@ -14,6 +11,12 @@ import type { PeersContext } from '../peer-discovery.js';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DESCRIPTION_TEMPLATE = readFileSync(join(__dirname, 'delegate.txt'), 'utf-8');
 
+const resourceSchema = z.object({
+  name: z.string().describe('Resource name (e.g., "src", "data")'),
+  path: z.string().describe('Local directory path'),
+  mode: z.enum(['ro', 'rw']).optional().describe('Access mode (default: rw)'),
+});
+
 export const delegateSchema = z.object({
   description: z
     .string()
@@ -23,11 +26,16 @@ export const delegateSchema = z.object({
     .describe('Full task instructions including goals and constraints'),
   workspace_dir: z
     .string()
-    .describe('Local directory path to delegate to the Executor (absolute or relative)'),
+    .optional()
+    .describe('Local directory path to delegate (for single-resource delegation)'),
+  resources: z
+    .array(resourceSchema)
+    .optional()
+    .describe('Multiple resources to delegate (alternative to workspace_dir)'),
   cwd: z
     .string()
     .optional()
-    .describe('Current working directory for resolving relative workspace_dir paths. If not provided, relative paths are resolved against the daemon process cwd.'),
+    .describe('Working directory for resolving relative paths'),
   peer_url: z
     .string()
     .url()
@@ -41,7 +49,21 @@ export const delegateSchema = z.object({
   access_mode: z
     .enum(['ro', 'rw'])
     .optional()
-    .describe('Access mode: ro (read-only) or rw (read-write, default)'),
+    .describe('Default access mode: ro (read-only) or rw (read-write, default)'),
+  snapshot_mode: z
+    .enum(['auto', 'staged', 'discard'])
+    .optional()
+    .describe(
+      'Snapshot handling: auto (apply immediately), staged (require manual apply), discard (ignore)'
+    ),
+  auth_type: z
+    .enum(['api_key', 'bearer', 'oauth2'])
+    .optional()
+    .describe('Authentication type for the Executor'),
+  auth_credential: z
+    .string()
+    .optional()
+    .describe('Authentication credential (API key, bearer token, etc.)'),
   background: z
     .boolean()
     .optional()
@@ -53,28 +75,24 @@ export const delegateSchema = z.object({
 
 export type DelegateParams = z.infer<typeof delegateSchema>;
 
-/**
- * Generate delegate tool description with available executors info
- */
 export function generateDelegateDescription(peers?: PeersContext): string {
   let executorsSection = '';
 
-  // Add available executors section if peers are configured
   if (peers && peers.peers.length > 0) {
     const availablePeers = peers.peers.filter(p => p.card);
-    
+
     if (availablePeers.length > 0) {
       executorsSection = '## Available Executors';
-      
+
       for (const peer of availablePeers) {
         const card = peer.card!;
         executorsSection += `\n\n### ${card.name}`;
         executorsSection += `\n- **URL**: \`${peer.awcpUrl}\``;
-        
+
         if (card.description) {
           executorsSection += `\n- **Description**: ${card.description}`;
         }
-        
+
         if (card.skills && card.skills.length > 0) {
           const skillNames = card.skills.map(s => s.name).join(', ');
           executorsSection += `\n- **Skills**: ${skillNames}`;
@@ -83,9 +101,5 @@ export function generateDelegateDescription(peers?: PeersContext): string {
     }
   }
 
-  // Replace {executors} placeholder with actual content
   return DESCRIPTION_TEMPLATE.replace('{executors}', executorsSection);
 }
-
-// For backward compatibility - static description without peers
-export const delegateDescription = generateDelegateDescription();

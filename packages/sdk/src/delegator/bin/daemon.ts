@@ -119,6 +119,48 @@ export async function startDelegatorDaemon(config: DaemonConfig): Promise<Daemon
   });
 
   /**
+   * GET /delegation/:id/snapshots - List snapshots for a delegation
+   */
+  app.get('/delegation/:id/snapshots', (req, res) => {
+    try {
+      const snapshots = service.listSnapshots(req.params.id);
+      res.json({ snapshots });
+    } catch (error) {
+      res.status(404).json({
+        error: error instanceof Error ? error.message : 'Failed to list snapshots',
+      });
+    }
+  });
+
+  /**
+   * POST /delegation/:id/snapshots/:snapshotId/apply - Apply a snapshot
+   */
+  app.post('/delegation/:id/snapshots/:snapshotId/apply', async (req, res) => {
+    try {
+      await service.applySnapshot(req.params.id, req.params.snapshotId);
+      res.json({ ok: true });
+    } catch (error) {
+      res.status(400).json({
+        error: error instanceof Error ? error.message : 'Failed to apply snapshot',
+      });
+    }
+  });
+
+  /**
+   * POST /delegation/:id/snapshots/:snapshotId/discard - Discard a snapshot
+   */
+  app.post('/delegation/:id/snapshots/:snapshotId/discard', async (req, res) => {
+    try {
+      await service.discardSnapshot(req.params.id, req.params.snapshotId);
+      res.json({ ok: true });
+    } catch (error) {
+      res.status(400).json({
+        error: error instanceof Error ? error.message : 'Failed to discard snapshot',
+      });
+    }
+  });
+
+  /**
    * GET /health - Health check
    */
   app.get('/health', (_req, res) => {
