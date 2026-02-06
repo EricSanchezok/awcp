@@ -27,7 +27,7 @@
  * ```
  */
 
-import type { Delegation, TaskSpec, AccessMode, AuthCredential, EnvironmentSpec } from '@awcp/core';
+import type { Delegation, TaskSpec, AccessMode, AuthCredential, EnvironmentSpec, EnvironmentSnapshot, SnapshotPolicy } from '@awcp/core';
 
 /**
  * Parameters for creating a delegation
@@ -43,6 +43,8 @@ export interface DelegateRequest {
   ttlSeconds?: number;
   /** Access mode (uses default if not specified) */
   accessMode?: AccessMode;
+  /** Snapshot handling mode */
+  snapshotMode?: SnapshotPolicy;
   /** Optional authentication for paid/restricted Executor services */
   auth?: AuthCredential;
 }
@@ -137,6 +139,34 @@ export class DelegatorDaemonClient {
     }
 
     throw new Error(`Timeout waiting for delegation ${delegationId} to complete`);
+  }
+
+  /**
+   * List snapshots for a delegation
+   */
+  async listSnapshots(delegationId: string): Promise<EnvironmentSnapshot[]> {
+    const response = await this.request<{ snapshots: EnvironmentSnapshot[] }>(
+      `/delegation/${delegationId}/snapshots`
+    );
+    return response.snapshots;
+  }
+
+  /**
+   * Apply a snapshot to the local workspace
+   */
+  async applySnapshot(delegationId: string, snapshotId: string): Promise<void> {
+    await this.request(`/delegation/${delegationId}/snapshots/${snapshotId}/apply`, {
+      method: 'POST',
+    });
+  }
+
+  /**
+   * Discard a snapshot without applying
+   */
+  async discardSnapshot(delegationId: string, snapshotId: string): Promise<void> {
+    await this.request(`/delegation/${delegationId}/snapshots/${snapshotId}/discard`, {
+      method: 'POST',
+    });
   }
 
   /**

@@ -65,3 +65,6 @@ id_ed25519*
 
 # Private documents
 ref/
+
+# Skill build artifacts
+skill/*.zip

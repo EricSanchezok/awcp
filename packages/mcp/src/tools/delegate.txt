@@ -24,11 +24,42 @@ Consider delegating any task that would take significant time — tests, refacto
 
 Use background=false **only** when you have nothing else to do and must wait for this result.
 
+## Snapshot modes
+
+- **auto** (default): Executor's changes are automatically applied to your workspace
+- **staged**: Changes are saved but require manual review and apply via `delegate_snapshots` and `delegate_apply_snapshot`
+- **discard**: Changes are not saved (useful for read-only analysis tasks)
+
+Use `staged` when you want to review the executor's work before accepting it.
+
+## Multi-resource support
+
+You can delegate multiple directories with different access modes:
+
+```
+delegate(
+  resources: [
+    { name: "src", path: "/project/src", mode: "rw" },
+    { name: "data", path: "/project/data", mode: "ro" },
+  ],
+  ...
+)
+```
+
+Or use the simpler `workspace_dir` for single-directory delegations.
+
+## Authentication
+
+If the executor requires authentication, provide:
+- `auth_type`: "api_key", "bearer", or "oauth2"
+- `auth_credential`: The actual token or key
+
 ## Typical workflow
 
 1. Launch delegation with `background: true`
 2. Continue with other independent work (local tasks, more delegations, etc.)
 3. When ready for results, call `delegate_output(delegation_id, block: true, timeout: ...)`
+4. If using `snapshot_mode: "staged"`, review with `delegate_snapshots` then apply or discard
 
 This pattern maximizes parallelism and avoids idle waiting.
 
@@ -58,6 +89,15 @@ delegate(background: true, description: "Add unit tests", ...) → "dlg_2"
 # ... do other work ...
 delegate_output(delegation_id: "dlg_1", block: true)
 delegate_output(delegation_id: "dlg_2", block: true)
+```
+
+### Staged snapshot workflow
+```
+delegate(background: true, snapshot_mode: "staged", description: "Refactor auth", ...) → "dlg_abc"
+# ... wait for completion ...
+delegate_snapshots(delegation_id: "dlg_abc")
+# Review the snapshots, then:
+delegate_apply_snapshot(delegation_id: "dlg_abc", snapshot_id: "snap_1")
 ```
 
 ### Synchronous (only when nothing else to do)

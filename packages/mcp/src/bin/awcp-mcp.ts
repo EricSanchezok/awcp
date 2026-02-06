@@ -4,11 +4,6 @@
  *
  * Starts an MCP server that provides AWCP delegation tools.
  * Automatically starts the Delegator Daemon if not already running.
- *
- * Usage:
- *   awcp-mcp [options]
- *
- * See --help for all options.
  */
 
 import { createAwcpMcpServer } from '../server.js';
@@ -16,7 +11,7 @@ import { ensureDaemonRunning, type AutoDaemonOptions } from '../auto-daemon.js';
 import { discoverPeers, type PeersContext } from '../peer-discovery.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { createWriteStream, type WriteStream } from 'node:fs';
-import type { AccessMode } from '@awcp/core';
+import type { AccessMode, SnapshotPolicy } from '@awcp/core';
 
 interface ParsedArgs {
   // Daemon
@@ -33,6 +28,9 @@ interface ParsedArgs {
   maxTotalBytes?: number;
   maxFileCount?: number;
   maxSingleFileBytes?: number;
+
+  // Snapshot
+  snapshotMode?: SnapshotPolicy;
 
   // Defaults
   defaultTtl?: number;
@@ -54,6 +52,11 @@ interface ParsedArgs {
 
   // Git transport
   gitRemoteUrl?: string;
+  gitAuthType?: 'token' | 'ssh' | 'none';
+  gitToken?: string;
+  gitSshKeyPath?: string;
+  gitBranchPrefix?: string;
+  gitCleanupRemoteBranch?: boolean;
 
   // Peers
   peerUrls: string[];
@@ -74,7 +77,6 @@ function parseArgs(args: string[]): ParsedArgs | null {
     const nextArg = args[i + 1] ?? '';
 
     switch (arg) {
-      // Help
       case '--help':
       case '-h':
         printHelp();
@@ -113,6 +115,12 @@ function parseArgs(args: string[]): ParsedArgs | null {
         break;
       case '--max-single-file-bytes':
         result.maxSingleFileBytes = parseInt(nextArg, 10);
+        i++;
+        break;
+
+      // Snapshot
+      case '--snapshot-mode':
+        result.snapshotMode = nextArg as SnapshotPolicy;
         i++;
         break;
 
@@ -169,6 +177,26 @@ function parseArgs(args: string[]): ParsedArgs | null {
         result.gitRemoteUrl = nextArg;
         i++;
         break;
+      case '--git-auth-type':
+        result.gitAuthType = nextArg as 'token' | 'ssh' | 'none';
+        i++;
+        break;
+      case '--git-token':
+        result.gitToken = nextArg;
+        i++;
+        break;
+      case '--git-ssh-key-path':
+        result.gitSshKeyPath = nextArg;
+        i++;
+        break;
+      case '--git-branch-prefix':
+        result.gitBranchPrefix = nextArg;
+        i++;
+        break;
+      case '--git-cleanup-remote-branch':
+        result.gitCleanupRemoteBranch = nextArg !== 'false';
+        i++;
+        break;
 
       // Peers
       case '--peers':
@@ -193,7 +221,6 @@ async function main() {
     process.exit(1);
   }
 
-  // Setup log file if specified
   let logStream: WriteStream | undefined;
   if (parsed.logFile) {
     logStream = createWriteStream(parsed.logFile, { flags: 'a' });
@@ -211,22 +238,18 @@ async function main() {
     console.error(`[AWCP MCP] Logging to ${parsed.logFile}`);
   }
 
-  // Discover peers (fetch Agent Cards)
   let peersContext: PeersContext | undefined;
   if (parsed.peerUrls.length > 0) {
     console.error(`[AWCP MCP] Discovering ${parsed.peerUrls.length} peer(s)...`);
     peersContext = await discoverPeers(parsed.peerUrls);
   }
 
-  // Determine daemon URL
   let finalDaemonUrl: string;
 
   if (parsed.daemonUrl) {
-    // Use provided daemon URL (no auto-start)
     finalDaemonUrl = parsed.daemonUrl;
     console.error(`[AWCP MCP] Using existing daemon at ${parsed.daemonUrl}`);
   } else {
-    // Build auto-daemon options from parsed args
     const options: AutoDaemonOptions = {
       port: parsed.port,
       environmentDir: parsed.environmentDir,
@@ -234,6 +257,7 @@ async function main() {
       maxTotalBytes: parsed.maxTotalBytes,
       maxFileCount: parsed.maxFileCount,
       maxSingleFileBytes: parsed.maxSingleFileBytes,
+      snapshotMode: parsed.snapshotMode,
       defaultTtl: parsed.defaultTtl,
       defaultAccessMode: parsed.defaultAccessMode,
       tempDir: parsed.tempDir,
@@ -245,12 +269,16 @@ async function main() {
       storageEndpoint: parsed.storageEndpoint,
       storageLocalDir: parsed.storageLocalDir,
       gitRemoteUrl: parsed.gitRemoteUrl,
+      gitAuthType: parsed.gitAuthType,
+      gitToken: parsed.gitToken,
+      gitSshKeyPath: parsed.gitSshKeyPath,
+      gitBranchPrefix: parsed.gitBranchPrefix,
+      gitCleanupRemoteBranch: parsed.gitCleanupRemoteBranch,
     };
 
     const result = await ensureDaemonRunning(options);
     finalDaemonUrl = result.url;
 
-    // Handle shutdown to clean up daemon
     if (result.daemon) {
       const cleanup = async () => {
         console.error('[AWCP MCP] Shutting down daemon...');
@@ -262,13 +290,12 @@ async function main() {
     }
   }
 
-  // Create MCP server with peers context
   const server = createAwcpMcpServer({
     daemonUrl: finalDaemonUrl,
+    defaultSnapshotMode: parsed.snapshotMode,
     peers: peersContext,
   });
 
-  // Connect via stdio
   const transport = new StdioServerTransport();
   await server.connect(transport);
 
@@ -286,6 +313,10 @@ Provides MCP tools for AI agents to delegate work to remote Executors:
   - delegate: Delegate a workspace to a remote Executor
   - delegate_output: Get delegation status/results
   - delegate_cancel: Cancel active delegations
+  - delegate_snapshots: List snapshots for a delegation
+  - delegate_apply_snapshot: Apply a staged snapshot
+  - delegate_discard_snapshot: Discard a staged snapshot
+  - delegate_recover: Recover results after connection loss
 
 The daemon is automatically started if not running.
 
@@ -307,6 +338,9 @@ Admission Control:
   --max-file-count N         Max number of files (default: 10000)
   --max-single-file-bytes N  Max single file size (default: 50MB)
 
+Snapshot Options:
+  --snapshot-mode MODE       Snapshot handling: auto, staged, discard (default: auto)
+
 Delegation Defaults:
   --default-ttl SECONDS      Default lease duration (default: 3600)
   --default-access-mode MODE Default access: ro, rw (default: rw)
@@ -327,6 +361,11 @@ Storage Transport Options:
 
 Git Transport Options:
   --git-remote-url URL       Git remote URL (required for git transport)
+  --git-auth-type TYPE       Authentication: token, ssh, none (default: none)
+  --git-token TOKEN          Git token (for --git-auth-type token)
+  --git-ssh-key-path PATH    SSH key path (for --git-auth-type ssh)
+  --git-branch-prefix PREFIX Branch prefix for task branches (default: awcp/)
+  --git-cleanup-remote-branch BOOL  Delete remote branch after cleanup (default: true)
 
 Peer Discovery:
   --peers URL,...            Comma-separated list of executor base URLs
@@ -341,6 +380,9 @@ Examples:
   # Basic usage with one peer
   awcp-mcp --peers http://localhost:4001
 
+  # Staged snapshot mode (requires manual approval)
+  awcp-mcp --peers http://localhost:4001 --snapshot-mode staged
+
   # Multiple peers
   awcp-mcp --peers http://agent1:4001,http://agent2:4002
 
@@ -350,8 +392,12 @@ Examples:
   # Use SSHFS transport
   awcp-mcp --peers http://localhost:4001 --transport sshfs --ssh-ca-key ~/.awcp/ca
 
-  # Use Git transport (local bare repo)
-  awcp-mcp --peers http://localhost:4001 --transport git --git-remote-url /path/to/repo.git
+  # Use Git transport with token auth
+  awcp-mcp --peers http://localhost:4001 \\
+    --transport git \\
+    --git-remote-url https://github.com/user/repo.git \\
+    --git-auth-type token \\
+    --git-token ghp_xxxxx
 
 Claude Desktop config (claude_desktop_config.json):
   {

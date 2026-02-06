@@ -69,6 +69,7 @@
                  │               │  • Daemon        │               │
                  │               │  • Admission     │               │
                  │               │  • Environment   │               │
+                 │               │  • SnapshotStore │  ← NEW        │
                  │               │                  │               │
                  │               │  Executor:       │               │
                  │               │  • Service       │               │
@@ -80,26 +81,32 @@
                  │               │  • WebSocket     │               │
                  │               └────────┬─────────┘               │
                  │                        │                         │
-                 ▼                        ▼                         ▼
-    ┌────────────────────┐    ┌──────────────────┐    ┌────────────────────┐
-    │ @awcp/transport-   │    │   @awcp/core     │    │ @awcp/transport-   │
-    │      sshfs         │    │                  │    │     archive        │
-    │                    │    │  Types:          │    │                    │
-    │  • CredentialMgr   │───►│  • Messages      │◄───│  • createArchive   │
-    │  • SshfsMountClient│    │  • Transport     │    │  • extractArchive  │
-    │                    │    │  • Service       │    │  • applyResult     │
-    └────────────────────┘    │  • Listener      │    └─────────┬──────────┘
-                              │                  │              │
-                              │  Errors:         │              │ reuses utils
-                              │  • AwcpError     │              ▼
-                              │  • 14 subclasses │    ┌────────────────────┐
-                              │                  │    │ @awcp/transport-   │
-                              │  State Machine:  │    │     storage        │
-                              │  • 9 states      │    │                    │
-                              │  • transitions   │    │  • StorageProvider │
-                              │                  │    │  • LocalStorage    │
-                              │  Zero deps!      │    │  • (S3 planned)    │
-                              └──────────────────┘    └────────────────────┘
+    ┌────────────┴────────────┐          │          ┌──────────────┴───────────┐
+    │                         │          ▼          │                          │
+    ▼                         ▼                     ▼                          ▼
+┌────────────────┐  ┌────────────────┐  ┌──────────────────┐  ┌────────────────────┐
+│ @awcp/transport│  │ @awcp/transport│  │   @awcp/core     │  │ @awcp/transport-   │
+│     -sshfs     │  │     -git       │  │                  │  │     archive        │
+│                │  │     ← NEW      │  │  Types:          │  │                    │
+│• CredentialMgr │  │                │  │  • Messages      │  │  • createArchive   │
+│• SshfsMountCli │  │• GitTransport  │  │  • Transport     │  │  • extractArchive  │
+│                │  │• git-utils     │──│  • Snapshot ←NEW │──│  • applyResult     │
+└────────────────┘  └────────────────┘  │  • Service       │  └─────────┬──────────┘
+        │                  │            │                  │            │
+        │                  │            │  Utilities:      │            │ reuses utils
+        │                  │            │  • generateId    │            ▼
+        └──────────────────┴───────────►│    ← NEW         │  ┌────────────────────┐
+                                        │                  │  │ @awcp/transport-   │
+                                        │  Errors:         │  │     storage        │
+                                        │  • AwcpError     │  │                    │
+                                        │  • 14 subclasses │  │  • StorageProvider │
+                                        │                  │  │  • LocalStorage    │
+                                        │  State Machine:  │  │  • S3Storage       │
+                                        │  • 9 states      │  └────────────────────┘
+                                        │  • transitions   │
+                                        │                  │
+                                        │  Zero deps!      │
+                                        └──────────────────┘
 ```
 
 ## 3. 协议消息流程
@@ -261,30 +268,33 @@
 │  │  │  ┌────────────────────────┐  │  │    │  │  ┌────────────────────────┐  │  │   │
 │  │  │  │ • delegations Map      │  │  │    │  │  │ • pendingInvitations   │  │  │   │
 │  │  │  │ • stateMachines Map    │  │  │    │  │  │ • activeDelegations    │  │  │   │
-│  │  │  │ • executorUrls Map     │  │  │    │  │  │ • eventEmitters Map    │  │  │   │
-│  │  │  └────────────────────────┘  │  │    │  │  └────────────────────────┘  │  │   │
-│  │  │                              │  │    │  │                              │  │   │
-│  │  │  delegate()                  │  │    │  │  handleMessage()             │  │   │
-│  │  │  handleAccept()              │  │    │  │  handleInvite()              │  │   │
-│  │  │  handleDone()                │  │    │  │  handleStart()               │  │   │
+│  │  │  │ • executorUrls Map     │  │  │    │  │  │ • completedDelegations │  │  │   │
+│  │  │  └────────────────────────┘  │  │    │  │  │ • eventEmitters Map    │  │  │   │
+│  │  │                              │  │    │  │  └────────────────────────┘  │  │   │
+│  │  │  delegate()                  │  │    │  │                              │  │   │
+│  │  │  handleAccept()              │  │    │  │  handleMessage()             │  │   │
+│  │  │  handleDone()                │  │    │  │  handleInvite()              │  │   │
+│  │  │  handleSnapshot()            │  │    │  │  handleStart()               │  │   │
 │  │  │  handleError()               │  │    │  │  executeTask()               │  │   │
-│  │  │  cancel()                    │  │    │  │  subscribeTask()             │  │   │
+│  │  │  listSnapshots()             │  │    │  │  subscribeTask()             │  │   │
+│  │  │  applySnapshot()             │  │    │  │  getTaskResult()             │  │   │
+│  │  │  cancel()                    │  │    │  │  acknowledgeResult()         │  │   │
 │  │  │  waitForCompletion()         │  │    │  │  cancelDelegation()          │  │   │
 │  │  └──────────────────────────────┘  │    │  └──────────────────────────────┘  │   │
 │  │           │           │            │    │           │           │            │   │
 │  │           │           │            │    │           │           │            │   │
 │  │           ▼           ▼            │    │           ▼           ▼            │   │
-│  │  ┌────────────┐ ┌────────────┐     │    │  ┌────────────┐ ┌────────────┐     │   │
-│  │  │ Admission  │ │Environment │     │    │  │ Workspace  │ │   Task     │     │   │
-│  │  │ Controller │ │  Builder   │     │    │  │  Manager   │ │  Executor  │     │   │
-│  │  ├────────────┤ ├────────────┤     │    │  ├────────────┤ ├────────────┤     │   │
-│  │  │check()     │ │build()     │     │    │  │allocate()  │ │execute()   │     │   │
-│  │  │• size      │ │release()   │     │    │  │prepare()   │ │            │     │   │
-│  │  │• count     │ │            │     │    │  │release()   │ │ Injected:  │     │   │
-│  │  │• single    │ │ uses:      │     │    │  │validate()  │ │ • A2A      │     │   │
-│  │  │            │ │ FsResource │     │    │  │            │ │ • Custom   │     │   │
-│  │  │            │ │ Adapter    │     │    │  │            │ │            │     │   │
-│  │  └────────────┘ └────────────┘     │    │  └────────────┘ └────────────┘     │   │
+│  │  ┌────────────┐ ┌────────────┐ ┌────────────┐   │  ┌────────────┐ ┌────────────┐     │   │
+│  │  │ Admission  │ │Environment │ │ Snapshot   │   │  │ Workspace  │ │   Task     │     │   │
+│  │  │ Controller │ │  Builder   │ │   Store    │   │  │  Manager   │ │  Executor  │     │   │
+│  │  ├────────────┤ ├────────────┤ ├────────────┤   │  ├────────────┤ ├────────────┤     │   │
+│  │  │check()     │ │build()     │ │save()      │   │  │allocate()  │ │execute()   │     │   │
+│  │  │• size      │ │release()   │ │load()      │   │  │prepare()   │ │            │     │   │
+│  │  │• count     │ │            │ │delete()    │   │  │release()   │ │ Injected:  │     │   │
+│  │  │• single    │ │ uses:      │ │cleanup()   │   │  │validate()  │ │ • A2A      │     │   │
+│  │  │            │ │ FsResource │ │            │   │  │            │ │ • Custom   │     │   │
+│  │  │            │ │ Adapter    │ │            │   │  │            │ │            │     │   │
+│  │  └────────────┘ └────────────┘ └────────────┘   │  └────────────┘ └────────────┘     │   │
 │  │                                    │    │                                    │   │
 │  │           │                        │    │                                    │   │
 │  │           ▼                        │    │                                    │   │
@@ -294,6 +304,8 @@
 │  │  │ sendInvite()    POST /awcp   │──┼────┼──────────────────────────────────► │   │
 │  │  │ sendStart()     POST /awcp   │──┼────┼──────────────────────────────────► │   │
 │  │  │ subscribeTask() GET  /events │──┼────┼──────────────────────────────────► │   │
+│  │  │ fetchResult()   GET  /result │──┼────┼──────────────────────────────────► │   │
+│  │  │ acknowledgeResult() POST/ack │──┼────┼──────────────────────────────────► │   │
 │  │  │ sendCancel()    POST /cancel │──┼────┼──────────────────────────────────► │   │
 │  │  └──────────────────────────────┘  │    │                                    │   │
 │  │                                    │    │                                    │   │
@@ -309,8 +321,10 @@
 │  │  │ • Express Router        │          │ • Connects to tunnel server         │  │  │
 │  │  │ • POST / (messages)     │          │ • NAT traversal support             │  │  │
 │  │  │ • GET /tasks/:id/events │          │ • Reconnect with backoff            │  │  │
-│  │  │ • POST /cancel/:id      │          │ • Bidirectional HTTP over WS        │  │  │
-│  │  │ • Direct HTTP access    │          │ • SSE tunneling                     │  │  │
+│  │  │ • GET /tasks/:id/result │          │ • Bidirectional HTTP over WS        │  │  │
+│  │  │ • POST /tasks/:id/ack   │          │ • SSE tunneling                     │  │  │
+│  │  │ • POST /cancel/:id      │          │                                     │  │  │
+│  │  │ • Direct HTTP access    │          │                                     │  │  │
 │  │  └─────────────────────────┘          └─────────────────────────────────────┘  │  │
 │  │                                                                                 │  │
 │  └────────────────────────────────────────────────────────────────────────────────┘  │
@@ -385,6 +399,29 @@
 │  │   └──────────────┘      └──────────────┘                └──────────────┘        │ │
 │  │                                                                                  │ │
 │  │   ✓ Large workspaces  ✓ Cloud-native    ✗ External storage   ✗ URL expiry      │ │
+│  └─────────────────────────────────────────────────────────────────────────────────┘ │
+│                                                                                       │
+│  ┌─────────────────────────────────────────────────────────────────────────────────┐ │
+│  │                              Git Transport                                       │ │
+│  ├─────────────────────────────────────────────────────────────────────────────────┤ │
+│  │                                                                                  │ │
+│  │   Delegator                 Git Server                   Executor               │ │
+│  │   ┌──────────────┐         ┌──────────────┐            ┌──────────────┐        │ │
+│  │   │ Source Dir   │         │   Remote     │            │ Work Dir     │        │ │
+│  │   └──────┬───────┘         │   Repo       │            └──────▲───────┘        │ │
+│  │          │ git init +      │              │                   │ git clone      │ │
+│  │          │ push            │ ┌──────────┐ │   git clone       │                │ │
+│  │          └──────────────►  │ │  main    │ │   ──────────────► │                │ │
+│  │                            │ │ branch   │ │                   │                │ │
+│  │                            │ └──────────┘ │                   │                │ │
+│  │                            │ ┌──────────┐ │   git push        │                │ │
+│  │   ┌──────────────┐         │ │ awcp/    │ │   ◄─────────────  │                │ │
+│  │   │ git fetch +  │ ◄───────│ │ {dlgId}  │ │                   │                │ │
+│  │   │ merge        │         │ │ branch   │ │                   │                │ │
+│  │   └──────────────┘         │ └──────────┘ │                   │                │ │
+│  │                            └──────────────┘                                    │ │
+│  │                                                                                  │ │
+│  │   ✓ Version history  ✓ Diff tracking  ✓ Branch mgmt  ✗ No live sync           │ │
 │  └─────────────────────────────────────────────────────────────────────────────────┘ │
 │                                                                                       │
 └──────────────────────────────────────────────────────────────────────────────────────┘
@@ -491,21 +528,28 @@
 │  │  (defined in @awcp/core, implemented by transport packages)                      │ │
 │  ├─────────────────────────────────────────────────────────────────────────────────┤ │
 │  │                                                                                  │ │
+│  │  TransportCapabilities {                                                         │ │
+│  │    supportsSnapshots: boolean   // Can return snapshot data                      │ │
+│  │    liveSync: boolean            // Real-time sync (SSHFS only)                   │ │
+│  │  }                                                                               │ │
+│  │                                                                                  │ │
 │  │  DelegatorTransportAdapter              ExecutorTransportAdapter                │ │
 │  │  ┌──────────────────────────┐          ┌──────────────────────────┐             │ │
 │  │  │ type: TransportType      │          │ type: TransportType      │             │ │
+│  │  │ capabilities: {...}      │          │ capabilities: {...}      │             │ │
 │  │  │                          │          │                          │             │ │
 │  │  │ prepare(params)          │          │ checkDependency()        │             │ │
 │  │  │  → { workDirInfo }       │          │  → { available, hint }   │             │ │
 │  │  │                          │          │                          │             │ │
-│  │  │ applyResult?(params)     │          │ setup(params)            │             │ │
+│  │  │ applySnapshot?(params)   │          │ setup(params)            │             │ │
 │  │  │  → void                  │          │  → workPath              │             │ │
 │  │  │                          │          │                          │             │ │
 │  │  │ cleanup(delegationId)    │          │ teardown(params)         │             │ │
-│  │  │  → void                  │          │  → { resultBase64? }     │             │ │
+│  │  │  → void                  │          │  → { snapshotBase64? }   │             │ │
 │  │  └──────────────────────────┘          └──────────────────────────┘             │ │
 │  │                                                                                  │ │
-│  │  Implementations: SshfsTransport, ArchiveTransport, StorageTransport            │ │
+│  │  Implementations: SshfsTransport, ArchiveTransport, StorageTransport,           │ │
+│  │                   GitTransport                                                   │ │
 │  └─────────────────────────────────────────────────────────────────────────────────┘ │
 │                                                                                       │
 │  ┌─────────────────────────────────────────────────────────────────────────────────┐ │
