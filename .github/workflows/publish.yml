@@ -66,6 +66,9 @@ jobs:
       - name: Build
         run: npm run build
 
+      - name: Build skill
+        run: npm run skill:build
+
       - name: Test
         run: npm test
 
@@ -105,6 +108,8 @@ jobs:
           name: v${{ steps.version.outputs.version }}
           generate_release_notes: true
           draft: false
+          files: |
+            skill/awcp-skill.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -119,6 +124,8 @@ jobs:
             echo "Install with: \`npm install @awcp/sdk@dev\`" >> $GITHUB_STEP_SUMMARY
           else
             echo "Install with: \`npm install @awcp/sdk\`" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "**Skill:** \`awcp-skill.zip\` attached to release" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
             echo "> Remember to create a PR to sync dev → main" >> $GITHUB_STEP_SUMMARY
           fi

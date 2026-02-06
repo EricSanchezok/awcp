@@ -14,7 +14,9 @@
     "clean": "npm run clean --workspaces --if-present",
     "test": "npm run test -w @awcp/core -w @awcp/transport-sshfs -w @awcp/transport-archive -w @awcp/transport-storage -w @awcp/transport-git -w @awcp/sdk -w @awcp/mcp",
     "lint": "eslint packages/*/src/**/*.ts",
-    "typecheck": "tsc --build --noEmit"
+    "typecheck": "tsc --build --noEmit",
+    "skill:build": "cd skill && zip -r awcp-skill.zip awcp-skill -x '*.DS_Store'",
+    "skill:clean": "rm -f skill/awcp-skill.zip"
   },
   "devDependencies": {
     "@types/node": "^20.10.0",
