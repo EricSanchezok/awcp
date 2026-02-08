@@ -112,86 +112,129 @@
 ## 3. 协议消息流程
 
 ```
-┌──────────────────────────────────────────────────────────────────────────────────────┐
-│                           AWCP Protocol Message Flow                                  │
-├──────────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                       │
-│   Delegator                                                         Executor          │
-│       │                                                                 │             │
-│       │  ┌─────────────────────────────────────────────────────────┐   │             │
-│       │  │ 1. INVITE                                               │   │             │
-│       │  │    • task: { description, prompt }                      │   │             │
-│       │  │    • lease: { ttlSeconds, accessMode }                  │   │             │
-│       │  │    • environment: EnvironmentDeclaration                 │   │             │
-│       │  │    • requirements: { transport }                        │   │             │
-│       │  └─────────────────────────────────────────────────────────┘   │             │
-│       │ ─────────────────── POST /awcp ───────────────────────────────►│             │
-│       │                                                                 │             │
-│       │                                     ┌───────────────────────────┤             │
-│       │                                     │ Policy Check:             │             │
-│       │                                     │ • maxConcurrent?          │             │
-│       │                                     │ • transport supported?    │             │
-│       │                                     │ • autoAccept or hook?     │             │
-│       │                                     └───────────────────────────┤             │
-│       │                                                                 │             │
-│       │  ┌─────────────────────────────────────────────────────────┐   │             │
-│       │  │ 2. ACCEPT (or ERROR)                                    │   │             │
-│       │  │    • executorWorkDir: { path }                          │   │             │
-│       │  │    • executorConstraints: { sandboxProfile }            │   │             │
-│       │  └─────────────────────────────────────────────────────────┘   │             │
-│       │ ◄───────────────── HTTP Response ──────────────────────────────│             │
-│       │                                                                 │             │
-│ ┌─────┤                                                                 │             │
-│ │     │ Prepare Transport:                                              │             │
-│ │     │ • SSHFS: generate certificates                                  │             │
-│ │     │ • Archive: create ZIP + base64                                  │             │
-│ │     │ • Storage: upload to S3, get URLs                               │             │
-│ └─────┤                                                                 │             │
-│       │                                                                 │             │
-│       │  ┌─────────────────────────────────────────────────────────┐   │             │
-│       │  │ 3. START                                                │   │             │
-│       │  │    • lease: { expiresAt, accessMode }                   │   │             │
-│       │  │    • workDir: WorkDirInfo (transport-specific)          │   │             │
-│       │  │      ├─ sshfs: endpoint + credential                    │   │             │
-│       │  │      ├─ archive: workspaceBase64 + checksum             │   │             │
-│       │  │      └─ storage: downloadUrl + uploadUrl                │   │             │
-│       │  └─────────────────────────────────────────────────────────┘   │             │
-│       │ ─────────────────── POST /awcp ───────────────────────────────►│             │
-│       │ ◄───────────────── { ok: true } ───────────────────────────────│             │
-│       │                                                                 │             │
-│       │                                     ┌───────────────────────────┤             │
-│       │                                     │ Setup Workspace:          │             │
-│       │                                     │ • SSHFS: mount            │             │
-│       │                                     │ • Archive: extract        │             │
-│       │                                     │ • Storage: download       │             │
-│       │                                     └───────────────────────────┤             │
-│       │                                                                 │             │
-│       │  ┌─────────────────────────────────────────────────────────┐   │             │
-│       │  │ 4. SSE Event Stream                                     │   │             │
-│       │  └─────────────────────────────────────────────────────────┘   │             │
-│       │ ─────────── GET /awcp/tasks/:id/events ────────────────────────►│             │
-│       │                                                                 │             │
-│       │ ◄─────────── SSE: { type: "status", status: "running" } ───────│             │
-│       │                                                                 │             │
-│       │                                     ┌───────────────────────────┤             │
-│       │                                     │ Execute Task:             │             │
-│       │                                     │ TaskExecutor.execute()    │             │
-│       │                                     │ • read/write files        │             │
-│       │                                     │ • run commands            │             │
-│       │                                     └───────────────────────────┤             │
-│       │                                                                 │             │
-│       │ ◄───── SSE: { type: "done", summary, resultBase64? } ──────────│             │
-│       │                                                                 │             │
-│ ┌─────┤                                     ┌───────────────────────────┤             │
-│ │     │ Apply Result:                       │ Teardown:                 │             │
-│ │     │ • Archive: extract & copy back      │ • SSHFS: unmount          │             │
-│ │     │ • Storage: download & apply         │ • Archive: delete temp    │             │
-│ │     │ • SSHFS: already synced             │ • Storage: cleanup        │             │
-│ └─────┤                                     └───────────────────────────┤             │
-│       │                                                                 │             │
-│       ▼                                                                 ▼             │
-│                                                                                       │
-└──────────────────────────────────────────────────────────────────────────────────────┘
+┌───────────────────────────────────────────────────────────────────────────────────────────┐
+│                             AWCP Protocol Message Flow                                     │
+├───────────────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                            │
+│   Delegator                                                              Executor          │
+│       │                                                                      │             │
+│       │  ┌──────────────────────────────────────────────────────────────┐   │             │
+│       │  │ 1. INVITE                                                    │   │             │
+│       │  │    • task: { description, prompt }                           │   │             │
+│       │  │    • lease: { ttlSeconds, accessMode }                       │   │             │
+│       │  │    • environment: { resources: ResourceDeclaration[] }       │   │             │
+│       │  │    • requirements?: { transport }                            │   │             │
+│       │  │    • auth?: { type, credential }                             │   │             │
+│       │  └──────────────────────────────────────────────────────────────┘   │             │
+│       │ ──────────────────────── POST / ───────────────────────────────────►│             │
+│       │                                                                      │             │
+│       │                                          ┌───────────────────────────┤             │
+│       │                                          │ Policy Check:             │             │
+│       │                                          │ • maxConcurrent?          │             │
+│       │                                          │ • maxTtlSeconds?          │             │
+│       │                                          │ • transport supported?    │             │
+│       │                                          │ • autoAccept or hook?     │             │
+│       │                                          └───────────────────────────┤             │
+│       │                                                                      │             │
+│       │  ┌──────────────────────────────────────────────────────────────┐   │             │
+│       │  │ 2. ACCEPT (or ERROR)                                         │   │             │
+│       │  │    • executorWorkDir: { path }                               │   │             │
+│       │  │    • executorConstraints?: {                                 │   │             │
+│       │  │        acceptedAccessMode, maxTtlSeconds, sandboxProfile     │   │             │
+│       │  │      }                                                       │   │             │
+│       │  └──────────────────────────────────────────────────────────────┘   │             │
+│       │ ◄────────────────────── HTTP Response ──────────────────────────────│             │
+│       │                                                                      │             │
+│ ┌─────┤                                                                      │             │
+│ │     │ Prepare Transport:                                                   │             │
+│ │     │ • SSHFS: generate SSH keys + certificates                            │             │
+│ │     │ • Archive: create ZIP + base64 encode                                │             │
+│ │     │ • Storage: upload ZIP to S3, get pre-signed URLs                     │             │
+│ │     │ • Git: init repo, create base branch                                 │             │
+│ └─────┤                                                                      │             │
+│       │                                                                      │             │
+│       │  ┌──────────────────────────────────────────────────────────────┐   │             │
+│       │  │ 3. START                                                     │   │             │
+│       │  │    • lease: { expiresAt, accessMode }                        │   │             │
+│       │  │    • workDir: WorkDirInfo (transport-specific)               │   │             │
+│       │  │      ├─ sshfs: endpoint + exportLocator + credential         │   │             │
+│       │  │      ├─ archive: workspaceBase64 + checksum                  │   │             │
+│       │  │      ├─ storage: downloadUrl + uploadUrl + checksum          │   │             │
+│       │  │      └─ git: repoUrl + baseBranch + baseCommit + auth?       │   │             │
+│       │  └──────────────────────────────────────────────────────────────┘   │             │
+│       │ ──────────────────────── POST / ───────────────────────────────────►│             │
+│       │ ◄────────────────────── { ok: true } ───────────────────────────────│             │
+│       │                                                                      │             │
+│       │                                          ┌───────────────────────────┤             │
+│       │                                          │ Setup Workspace:          │             │
+│       │                                          │ • SSHFS: mount remote     │             │
+│       │                                          │ • Archive: decode+extract │             │
+│       │                                          │ • Storage: download+unzip │             │
+│       │                                          │ • Git: clone to commit    │             │
+│       │                                          └───────────────────────────┤             │
+│       │                                                                      │             │
+│       │  ┌──────────────────────────────────────────────────────────────┐   │             │
+│       │  │ 4. SSE Event Stream (4 event types)                          │   │             │
+│       │  └──────────────────────────────────────────────────────────────┘   │             │
+│       │ ───────────── GET /tasks/:taskId/events ─────────────────────────────►│             │
+│       │                                                                      │             │
+│       │ ◄─────── SSE: { type: "status", status: "running" } ────────────────│             │
+│       │                                                                      │             │
+│       │                                          ┌───────────────────────────┤             │
+│       │                                          │ Execute Task:             │             │
+│       │                                          │ TaskExecutor.execute()    │             │
+│       │                                          │ • read/write workspace    │             │
+│       │                                          │ • run commands            │             │
+│       │                                          └───────────────────────────┤             │
+│       │                                                                      │             │
+│       │                                          ┌───────────────────────────┤             │
+│       │                                          │ Teardown (creates snapshot│             │
+│       │                                          │ for non-liveSync):        │             │
+│       │                                          │ • Archive: ZIP → Base64   │             │
+│       │                                          │ • Storage: upload to URL  │             │
+│       │                                          │ • Git: commit + push      │             │
+│       │                                          │ • SSHFS: unmount (no snap)│             │
+│       │                                          └───────────────────────────┤             │
+│       │                                                                      │             │
+│       │ ◄─── SSE: { type: "snapshot", snapshotId, snapshotBase64,  ─────────│             │
+│       │             summary, highlights?, recommended?, metadata? }          │             │
+│       │                                                                      │             │
+│       │ ◄─── SSE: { type: "done", summary, highlights?,  ───────────────────│             │
+│       │             snapshotIds?, recommendedSnapshotId? }                   │             │
+│       │                                                                      │             │
+│ ┌─────┤ (stream closes)                                                      │             │
+│ │     │                                                                      │             │
+│ │     │ Apply Snapshot (based on policy):                                    │             │
+│ │     │ • auto: decode + extract + copy to source dirs immediately           │             │
+│ │     │ • staged: save to disk, await user applySnapshot() call              │             │
+│ │     │ • discard: ignore snapshot data                                      │             │
+│ │     │ • SSHFS: N/A (already synced via live mount)                         │             │
+│ └─────┤                                                                      │             │
+│       │                                                                      │             │
+│       │  ┌──────────────────────────────────────────────────────────────┐   │             │
+│       │  │ 5. Acknowledge (optional, for cleanup)                       │   │             │
+│       │  └──────────────────────────────────────────────────────────────┘   │             │
+│       │ ───────────── POST /tasks/:taskId/ack ────────────────────────────────►│             │
+│       │ ◄────────────────────── { ok: true } ───────────────────────────────│             │
+│       │                                                                      │             │
+│       ▼                                                                      ▼             │
+│                                                                                            │
+├───────────────────────────────────────────────────────────────────────────────────────────┤
+│  Alternative Flows:                                                                        │
+│                                                                                            │
+│  ERROR Response (at INVITE):                                                               │
+│    ◄─── { type: "ERROR", code, message, hint? }                                           │
+│                                                                                            │
+│  SSE Error Event (during execution):                                                       │
+│    ◄─── SSE: { type: "error", code, message, hint? }  (terminal, closes stream)           │
+│                                                                                            │
+│  Cancel (anytime before completion):                                                       │
+│    ─── POST /cancel/:delegationId ──►  ◄─── { ok: true, cancelled: true }                 │
+│                                                                                            │
+│  Result Query (for recovery/polling):                                                      │
+│    ─── GET /tasks/:taskId/result ──►  ◄─── { status, summary?, snapshotBase64?, error? }  │
+│                                                                                            │
+└───────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ## 4. 状态机
