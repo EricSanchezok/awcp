@@ -36,6 +36,7 @@ export function buildSshfsArgs(
     '-o', 'ServerAliveInterval=15',
     '-o', 'ServerAliveCountMax=3',
     '-o', 'noappledouble',
+    '-o', 'follow_symlinks',
   ];
 
   for (const [key, value] of Object.entries(options)) {

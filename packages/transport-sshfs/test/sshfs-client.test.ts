@@ -69,6 +69,7 @@ describe('SshfsMountClient', () => {
       expect(args).toContain('Port=2222');
       expect(args).toContain('StrictHostKeyChecking=no');
       expect(args).toContain('UserKnownHostsFile=/dev/null');
+      expect(args).toContain('follow_symlinks');
     });
 
     it('should include custom options', () => {
