@@ -452,16 +452,13 @@ function formatDelegationResult(delegation: Delegation): string {
     `Status: ${delegation.state}`,
   ];
 
-  if (delegation.state === 'completed' && delegation.snapshots?.length) {
-    const appliedSnapshot = delegation.snapshots.find(s => s.status === 'applied');
-    if (appliedSnapshot) {
-      lines.push('', '--- Result ---', appliedSnapshot.summary);
-      if (appliedSnapshot.highlights?.length) {
-        lines.push('', 'Highlights:', ...appliedSnapshot.highlights.map((h: string) => `  - ${h}`));
-      }
+  if (delegation.state === 'completed' && delegation.result) {
+    lines.push('', '--- Result ---', delegation.result.summary);
+    if (delegation.result.highlights?.length) {
+      lines.push('', 'Highlights:', ...delegation.result.highlights.map((h: string) => `  - ${h}`));
     }
 
-    const pendingSnapshots = delegation.snapshots.filter(s => s.status === 'pending');
+    const pendingSnapshots = delegation.snapshots?.filter(s => s.status === 'pending') ?? [];
     if (pendingSnapshots.length > 0) {
       lines.push('', `${pendingSnapshots.length} pending snapshot(s) - use delegate_snapshots to review`);
     }
@@ -499,19 +496,16 @@ function formatDelegationStatus(delegation: Delegation): string {
   if (isRunning(delegation)) {
     lines.push('', 'Task is still running...');
   } else if (delegation.state === 'completed') {
-    if (delegation.snapshots?.length) {
-      const appliedSnapshot = delegation.snapshots.find(s => s.status === 'applied');
-      if (appliedSnapshot) {
-        lines.push('', '--- Result ---', appliedSnapshot.summary);
-        if (appliedSnapshot.highlights?.length) {
-          lines.push('', 'Highlights:', ...appliedSnapshot.highlights.map(h => `  - ${h}`));
-        }
+    if (delegation.result) {
+      lines.push('', '--- Result ---', delegation.result.summary);
+      if (delegation.result.highlights?.length) {
+        lines.push('', 'Highlights:', ...delegation.result.highlights.map(h => `  - ${h}`));
       }
-      const pendingSnapshots = delegation.snapshots.filter(s => s.status === 'pending');
-      if (pendingSnapshots.length > 0) {
-        lines.push('', `${pendingSnapshots.length} pending snapshot(s) awaiting review`);
-        lines.push('Use delegate_snapshots to list, delegate_apply_snapshot or delegate_discard_snapshot to act');
-      }
+    }
+    const pendingSnapshots = delegation.snapshots?.filter(s => s.status === 'pending') ?? [];
+    if (pendingSnapshots.length > 0) {
+      lines.push('', `${pendingSnapshots.length} pending snapshot(s) awaiting review`);
+      lines.push('Use delegate_snapshots to list, delegate_apply_snapshot or delegate_discard_snapshot to act');
     }
   } else if (delegation.state === 'error' && delegation.error) {
     lines.push('', '--- Error ---', delegation.error.message);

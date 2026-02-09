@@ -317,8 +317,10 @@ describe('applyMessageToDelegation', () => {
     };
 
     const updated = applyMessageToDelegation(baseDelegation, done);
-    // Snapshots are managed separately via TaskSnapshotEvent
-    expect(updated.updatedAt).toBeDefined();
+    expect(updated.result).toEqual({
+      summary: 'Task completed',
+      highlights: ['Fixed bug', 'Added tests'],
+    });
   });
 
   it('should apply ERROR message', () => {

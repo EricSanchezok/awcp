@@ -260,6 +260,10 @@ export interface Delegation {
   snapshots?: EnvironmentSnapshot[];
   appliedSnapshotId?: string;
   snapshotPolicy?: SnapshotPolicyConfig;
+  result?: {
+    summary: string;
+    highlights?: string[];
+  };
   error?: {
     code: string;
     message: string;

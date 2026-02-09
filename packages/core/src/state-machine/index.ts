@@ -165,7 +165,10 @@ export function applyMessageToDelegation(
       break;
     
     case 'DONE':
-      // Snapshots are managed separately via TaskSnapshotEvent
+      updated.result = {
+        summary: message.finalSummary,
+        highlights: message.highlights,
+      };
       break;
     
     case 'ERROR':
