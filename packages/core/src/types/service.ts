@@ -12,7 +12,7 @@ import type {
   AuthCredential,
   Delegation,
 } from './messages.js';
-import type { SnapshotPolicy } from './snapshot.js';
+import type { SnapshotMode } from './snapshot.js';
 
 // ========== Task Executor ==========
 
@@ -82,7 +82,7 @@ export interface DelegateParams {
   task: TaskSpec;
   ttlSeconds?: number;
   accessMode?: AccessMode;
-  snapshotMode?: SnapshotPolicy;
+  snapshotMode?: SnapshotMode;
   auth?: AuthCredential;
 }
 

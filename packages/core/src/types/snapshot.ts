@@ -4,7 +4,7 @@
 
 export type SnapshotStatus = 'pending' | 'applied' | 'discarded';
 
-export type SnapshotPolicy = 'auto' | 'staged' | 'discard';
+export type SnapshotMode = 'auto' | 'staged' | 'discard';
 
 export interface SnapshotMetadata {
   fileCount?: number;
@@ -13,8 +13,8 @@ export interface SnapshotMetadata {
   [key: string]: unknown;
 }
 
-export interface SnapshotPolicyConfig {
-  mode: SnapshotPolicy;
+export interface SnapshotPolicy {
+  mode: SnapshotMode;
   retentionMs?: number;
   maxSnapshots?: number;
 }

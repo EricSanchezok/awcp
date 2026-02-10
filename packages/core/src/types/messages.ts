@@ -244,7 +244,7 @@ export type TaskEvent = TaskStatusEvent | TaskSnapshotEvent | TaskDoneEvent | Ta
 
 // --- Delegation Record ---
 
-import type { EnvironmentSnapshot, SnapshotPolicyConfig } from './snapshot.js';
+import type { EnvironmentSnapshot, SnapshotPolicy } from './snapshot.js';
 
 export interface Delegation {
   id: string;
@@ -259,7 +259,7 @@ export interface Delegation {
   executorConstraints?: ExecutorConstraints;
   snapshots?: EnvironmentSnapshot[];
   appliedSnapshotId?: string;
-  snapshotPolicy?: SnapshotPolicyConfig;
+  snapshotPolicy?: SnapshotPolicy;
   result?: {
     summary: string;
     highlights?: string[];

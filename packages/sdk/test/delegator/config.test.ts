@@ -5,7 +5,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { resolveDelegatorConfig, DEFAULT_ADMISSION, DEFAULT_DELEGATION, DEFAULT_SNAPSHOT } from '../../src/delegator/config.js';
+import { resolveDelegatorConfig, DEFAULT_ADMISSION, DEFAULT_DELEGATION } from '../../src/delegator/config.js';
 import type { DelegatorConfig } from '../../src/delegator/config.js';
 import type { DelegatorTransportAdapter, SshfsWorkDirInfo } from '@awcp/core';
 
@@ -45,17 +45,17 @@ describe('resolveDelegatorConfig', () => {
       expect(resolved.admission.maxSingleFileBytes).toBe(DEFAULT_ADMISSION.maxSingleFileBytes);
     });
 
-    it('should apply default snapshot policy', () => {
+    it('should apply default lease config', () => {
       const resolved = resolveDelegatorConfig(minimalConfig);
-      expect(resolved.snapshot.mode).toBe(DEFAULT_SNAPSHOT.mode);
-      expect(resolved.snapshot.retentionMs).toBe(DEFAULT_SNAPSHOT.retentionMs);
-      expect(resolved.snapshot.maxSnapshots).toBe(DEFAULT_SNAPSHOT.maxSnapshots);
+      expect(resolved.delegation.lease.ttlSeconds).toBe(3600);
+      expect(resolved.delegation.lease.accessMode).toBe('rw');
     });
 
-    it('should apply default TTL and access mode', () => {
+    it('should apply default snapshot config', () => {
       const resolved = resolveDelegatorConfig(minimalConfig);
-      expect(resolved.delegation.ttlSeconds).toBe(3600);
-      expect(resolved.delegation.accessMode).toBe('rw');
+      expect(resolved.delegation.snapshot.mode).toBe('auto');
+      expect(resolved.delegation.snapshot.retentionMs).toBe(30 * 60 * 1000);
+      expect(resolved.delegation.snapshot.maxSnapshots).toBe(10);
     });
 
     it('should preserve transport adapter', () => {
@@ -81,34 +81,38 @@ describe('resolveDelegatorConfig', () => {
       expect(resolved.admission.maxSingleFileBytes).toBe(10 * 1024 * 1024);
     });
 
-    it('should preserve custom snapshot policy', () => {
-      const config: DelegatorConfig = {
-        ...minimalConfig,
-        snapshot: {
-          mode: 'staged',
-          retentionMs: 60 * 60 * 1000,
-          maxSnapshots: 5,
-        },
-      };
-
-      const resolved = resolveDelegatorConfig(config);
-      expect(resolved.snapshot.mode).toBe('staged');
-      expect(resolved.snapshot.retentionMs).toBe(60 * 60 * 1000);
-      expect(resolved.snapshot.maxSnapshots).toBe(5);
-    });
-
-    it('should preserve custom delegation config', () => {
+    it('should preserve custom lease config', () => {
       const config: DelegatorConfig = {
         ...minimalConfig,
         delegation: {
-          ttlSeconds: 7200,
-          accessMode: 'ro',
+          lease: {
+            ttlSeconds: 7200,
+            accessMode: 'ro',
+          },
         },
       };
 
       const resolved = resolveDelegatorConfig(config);
-      expect(resolved.delegation.ttlSeconds).toBe(7200);
-      expect(resolved.delegation.accessMode).toBe('ro');
+      expect(resolved.delegation.lease.ttlSeconds).toBe(7200);
+      expect(resolved.delegation.lease.accessMode).toBe('ro');
+    });
+
+    it('should preserve custom snapshot config', () => {
+      const config: DelegatorConfig = {
+        ...minimalConfig,
+        delegation: {
+          snapshot: {
+            mode: 'staged',
+            retentionMs: 60 * 60 * 1000,
+            maxSnapshots: 5,
+          },
+        },
+      };
+
+      const resolved = resolveDelegatorConfig(config);
+      expect(resolved.delegation.snapshot.mode).toBe('staged');
+      expect(resolved.delegation.snapshot.retentionMs).toBe(60 * 60 * 1000);
+      expect(resolved.delegation.snapshot.maxSnapshots).toBe(5);
     });
 
     it('should preserve hooks', () => {
@@ -144,31 +148,44 @@ describe('resolveDelegatorConfig', () => {
       expect(resolved.admission.maxSingleFileBytes).toBe(DEFAULT_ADMISSION.maxSingleFileBytes);
     });
 
-    it('should merge partial snapshot config with defaults', () => {
-      const config: DelegatorConfig = {
-        ...minimalConfig,
-        snapshot: {
-          mode: 'staged',
-        },
-      };
-
-      const resolved = resolveDelegatorConfig(config);
-      expect(resolved.snapshot.mode).toBe('staged');
-      expect(resolved.snapshot.retentionMs).toBe(DEFAULT_SNAPSHOT.retentionMs);
-      expect(resolved.snapshot.maxSnapshots).toBe(DEFAULT_SNAPSHOT.maxSnapshots);
-    });
-
-    it('should merge partial delegation config with defaults', () => {
+    it('should merge partial lease config with defaults', () => {
       const config: DelegatorConfig = {
         ...minimalConfig,
         delegation: {
-          ttlSeconds: 1800,
+          lease: { ttlSeconds: 1800 },
         },
       };
 
       const resolved = resolveDelegatorConfig(config);
-      expect(resolved.delegation.ttlSeconds).toBe(1800);
-      expect(resolved.delegation.accessMode).toBe('rw');
+      expect(resolved.delegation.lease.ttlSeconds).toBe(1800);
+      expect(resolved.delegation.lease.accessMode).toBe('rw');
+    });
+
+    it('should merge partial snapshot config with defaults', () => {
+      const config: DelegatorConfig = {
+        ...minimalConfig,
+        delegation: {
+          snapshot: { mode: 'staged' },
+        },
+      };
+
+      const resolved = resolveDelegatorConfig(config);
+      expect(resolved.delegation.snapshot.mode).toBe('staged');
+      expect(resolved.delegation.snapshot.retentionMs).toBe(DEFAULT_DELEGATION.snapshot.retentionMs);
+      expect(resolved.delegation.snapshot.maxSnapshots).toBe(DEFAULT_DELEGATION.snapshot.maxSnapshots);
+    });
+
+    it('should allow setting lease and snapshot independently', () => {
+      const config: DelegatorConfig = {
+        ...minimalConfig,
+        delegation: {
+          lease: { ttlSeconds: 1800 },
+        },
+      };
+
+      const resolved = resolveDelegatorConfig(config);
+      expect(resolved.delegation.lease.ttlSeconds).toBe(1800);
+      expect(resolved.delegation.snapshot.mode).toBe('auto');
     });
   });
 });
@@ -180,14 +197,11 @@ describe('DEFAULT constants', () => {
     expect(DEFAULT_ADMISSION.maxSingleFileBytes).toBe(50 * 1024 * 1024);
   });
 
-  it('should have sensible snapshot values', () => {
-    expect(DEFAULT_SNAPSHOT.mode).toBe('auto');
-    expect(DEFAULT_SNAPSHOT.retentionMs).toBe(30 * 60 * 1000);
-    expect(DEFAULT_SNAPSHOT.maxSnapshots).toBe(10);
-  });
-
   it('should have sensible delegation defaults', () => {
-    expect(DEFAULT_DELEGATION.ttlSeconds).toBe(3600);
-    expect(DEFAULT_DELEGATION.accessMode).toBe('rw');
+    expect(DEFAULT_DELEGATION.lease.ttlSeconds).toBe(3600);
+    expect(DEFAULT_DELEGATION.lease.accessMode).toBe('rw');
+    expect(DEFAULT_DELEGATION.snapshot.mode).toBe('auto');
+    expect(DEFAULT_DELEGATION.snapshot.retentionMs).toBe(30 * 60 * 1000);
+    expect(DEFAULT_DELEGATION.snapshot.maxSnapshots).toBe(10);
   });
 });

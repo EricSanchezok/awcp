@@ -10,7 +10,6 @@ export {
   DelegatorService,
   type DelegatorServiceOptions,
   type DelegatorConfig,
-  type SnapshotConfig,
   type DelegationConfig,
   type DelegatorHooks,
   startDelegatorDaemon,

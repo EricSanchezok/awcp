@@ -27,7 +27,7 @@
  * ```
  */
 
-import type { Delegation, TaskSpec, AccessMode, AuthCredential, EnvironmentSpec, EnvironmentSnapshot, SnapshotPolicy } from '@awcp/core';
+import type { Delegation, TaskSpec, AccessMode, AuthCredential, EnvironmentSpec, EnvironmentSnapshot, SnapshotMode } from '@awcp/core';
 
 /**
  * Parameters for creating a delegation
@@ -44,7 +44,7 @@ export interface DelegateRequest {
   /** Access mode (uses default if not specified) */
   accessMode?: AccessMode;
   /** Snapshot handling mode */
-  snapshotMode?: SnapshotPolicy;
+  snapshotMode?: SnapshotMode;
   /** Optional authentication for paid/restricted Executor services */
   auth?: AuthCredential;
 }

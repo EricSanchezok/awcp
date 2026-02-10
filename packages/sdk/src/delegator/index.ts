@@ -2,13 +2,12 @@
 export { DelegatorService, type DelegatorServiceOptions } from './service.js';
 export {
   type DelegatorConfig,
-  type SnapshotConfig,
   type AdmissionConfig,
   type DelegationConfig,
   type DelegatorHooks,
   type ResolvedDelegatorConfig,
+  type ResolvedDelegationConfig,
   DEFAULT_ADMISSION,
-  DEFAULT_SNAPSHOT,
   DEFAULT_DELEGATION,
   resolveDelegatorConfig,
 } from './config.js';

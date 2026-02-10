@@ -2,21 +2,27 @@
  * AWCP Delegator Configuration
  */
 
-import type { Delegation, AccessMode, DelegatorTransportAdapter, SnapshotPolicy, EnvironmentSnapshot } from '@awcp/core';
+import type { Delegation, AccessMode, SnapshotMode, DelegatorTransportAdapter, EnvironmentSnapshot } from '@awcp/core';
 import type { AdmissionConfig } from './admission.js';
 
 // Re-export for convenience
 export type { AdmissionConfig } from './admission.js';
 
-export interface SnapshotConfig {
-  mode?: SnapshotPolicy;
-  retentionMs?: number;
-  maxSnapshots?: number;
-}
-
 export interface DelegationConfig {
-  ttlSeconds?: number;
-  accessMode?: AccessMode;
+  lease?: {
+    ttlSeconds?: number;
+    accessMode?: AccessMode;
+  };
+  snapshot?: {
+    mode?: SnapshotMode;
+    retentionMs?: number;
+    maxSnapshots?: number;
+  };
+  connection?: {
+    requestTimeout?: number;
+    sseMaxRetries?: number;
+    sseRetryDelayMs?: number;
+  };
 }
 
 export interface DelegatorHooks {
@@ -33,7 +39,6 @@ export interface DelegatorConfig {
   baseDir: string;
   transport: DelegatorTransportAdapter;
   admission?: AdmissionConfig;
-  snapshot?: SnapshotConfig;
   delegation?: DelegationConfig;
   hooks?: DelegatorHooks;
 }
@@ -51,23 +56,34 @@ export const DEFAULT_ADMISSION = {
   ],
 } as const;
 
-export const DEFAULT_SNAPSHOT = {
-  mode: 'auto' as SnapshotPolicy,
-  retentionMs: 30 * 60 * 1000,           // 30 minutes
-  maxSnapshots: 10,
+export const DEFAULT_DELEGATION = {
+  lease: {
+    ttlSeconds: 3600,
+    accessMode: 'rw' as AccessMode,
+  },
+  snapshot: {
+    mode: 'auto' as SnapshotMode,
+    retentionMs: 30 * 60 * 1000,           // 30 minutes
+    maxSnapshots: 10,
+  },
+  connection: {
+    requestTimeout: 30000,                  // 30 seconds
+    sseMaxRetries: 3,
+    sseRetryDelayMs: 2000,                  // 2s × retryCount (linear backoff)
+  },
 } as const;
 
-export const DEFAULT_DELEGATION = {
-  ttlSeconds: 3600,
-  accessMode: 'rw' as AccessMode,
-} as const;
+export interface ResolvedDelegationConfig {
+  lease: Required<NonNullable<DelegationConfig['lease']>>;
+  snapshot: Required<NonNullable<DelegationConfig['snapshot']>>;
+  connection: Required<NonNullable<DelegationConfig['connection']>>;
+}
 
 export interface ResolvedDelegatorConfig {
   baseDir: string;
   transport: DelegatorTransportAdapter;
   admission: Required<AdmissionConfig>;
-  snapshot: Required<SnapshotConfig>;
-  delegation: Required<DelegationConfig>;
+  delegation: ResolvedDelegationConfig;
   hooks: DelegatorHooks;
 }
 
@@ -82,14 +98,21 @@ export function resolveDelegatorConfig(config: DelegatorConfig): ResolvedDelegat
       sensitivePatterns: config.admission?.sensitivePatterns ?? [...DEFAULT_ADMISSION.sensitivePatterns],
       skipSensitiveCheck: config.admission?.skipSensitiveCheck ?? false,
     },
-    snapshot: {
-      mode: config.snapshot?.mode ?? DEFAULT_SNAPSHOT.mode,
-      retentionMs: config.snapshot?.retentionMs ?? DEFAULT_SNAPSHOT.retentionMs,
-      maxSnapshots: config.snapshot?.maxSnapshots ?? DEFAULT_SNAPSHOT.maxSnapshots,
-    },
     delegation: {
-      ttlSeconds: config.delegation?.ttlSeconds ?? DEFAULT_DELEGATION.ttlSeconds,
-      accessMode: config.delegation?.accessMode ?? DEFAULT_DELEGATION.accessMode,
+      lease: {
+        ttlSeconds: config.delegation?.lease?.ttlSeconds ?? DEFAULT_DELEGATION.lease.ttlSeconds,
+        accessMode: config.delegation?.lease?.accessMode ?? DEFAULT_DELEGATION.lease.accessMode,
+      },
+      snapshot: {
+        mode: config.delegation?.snapshot?.mode ?? DEFAULT_DELEGATION.snapshot.mode,
+        retentionMs: config.delegation?.snapshot?.retentionMs ?? DEFAULT_DELEGATION.snapshot.retentionMs,
+        maxSnapshots: config.delegation?.snapshot?.maxSnapshots ?? DEFAULT_DELEGATION.snapshot.maxSnapshots,
+      },
+      connection: {
+        requestTimeout: config.delegation?.connection?.requestTimeout ?? DEFAULT_DELEGATION.connection.requestTimeout,
+        sseMaxRetries: config.delegation?.connection?.sseMaxRetries ?? DEFAULT_DELEGATION.connection.sseMaxRetries,
+        sseRetryDelayMs: config.delegation?.connection?.sseRetryDelayMs ?? DEFAULT_DELEGATION.connection.sseRetryDelayMs,
+      },
     },
     hooks: config.hooks ?? {},
   };
