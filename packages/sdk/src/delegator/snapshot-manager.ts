@@ -1,11 +1,12 @@
 /**
- * Snapshot Store - manages snapshot storage on disk
+ * Snapshot Manager - manages snapshot storage on disk
  */
 
 import { mkdir, rm, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { cleanupStaleDirectories } from '../utils/index.js';
 
-export interface SnapshotStoreConfig {
+export interface SnapshotManagerConfig {
   baseDir: string;
 }
 
@@ -18,11 +19,11 @@ export interface StoredSnapshotMetadata {
   [key: string]: unknown;
 }
 
-export class SnapshotStore {
+export class SnapshotManager {
   private baseDir: string;
 
-  constructor(config: SnapshotStoreConfig) {
-    this.baseDir = join(config.baseDir, 'delegations');
+  constructor(config: SnapshotManagerConfig) {
+    this.baseDir = config.baseDir;
   }
 
   async save(
@@ -31,7 +32,7 @@ export class SnapshotStore {
     snapshotBase64: string,
     metadata: { summary: string; highlights?: string[]; [key: string]: unknown }
   ): Promise<string> {
-    const snapshotDir = join(this.baseDir, delegationId, 'snapshots', snapshotId);
+    const snapshotDir = join(this.baseDir, delegationId, snapshotId);
     await mkdir(snapshotDir, { recursive: true });
 
     const buffer = Buffer.from(snapshotBase64, 'base64');
@@ -51,17 +52,21 @@ export class SnapshotStore {
   }
 
   async load(delegationId: string, snapshotId: string): Promise<Buffer> {
-    const zipPath = join(this.baseDir, delegationId, 'snapshots', snapshotId, 'snapshot.zip');
+    const zipPath = join(this.baseDir, delegationId, snapshotId, 'snapshot.zip');
     return readFile(zipPath);
   }
 
   async delete(delegationId: string, snapshotId: string): Promise<void> {
-    const snapshotDir = join(this.baseDir, delegationId, 'snapshots', snapshotId);
+    const snapshotDir = join(this.baseDir, delegationId, snapshotId);
     await rm(snapshotDir, { recursive: true, force: true });
   }
 
   async cleanupDelegation(delegationId: string): Promise<void> {
-    const snapshotsDir = join(this.baseDir, delegationId, 'snapshots');
+    const snapshotsDir = join(this.baseDir, delegationId);
     await rm(snapshotsDir, { recursive: true, force: true });
+  }
+
+  async cleanupStale(knownIds: Set<string>): Promise<number> {
+    return cleanupStaleDirectories(this.baseDir, knownIds);
   }
 }

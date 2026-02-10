@@ -23,7 +23,7 @@ const mockTransport: DelegatorTransportAdapter = {
       credential: { privateKey: '', certificate: '' },
     } as SshfsWorkDirInfo,
   }),
-  cleanup: async () => {},
+  release: async () => {},
 };
 
 describe('resolveDelegatorConfig', () => {
@@ -54,8 +54,8 @@ describe('resolveDelegatorConfig', () => {
 
     it('should apply default TTL and access mode', () => {
       const resolved = resolveDelegatorConfig(minimalConfig);
-      expect(resolved.defaults.ttlSeconds).toBe(3600);
-      expect(resolved.defaults.accessMode).toBe('rw');
+      expect(resolved.delegation.ttlSeconds).toBe(3600);
+      expect(resolved.delegation.accessMode).toBe('rw');
     });
 
     it('should preserve transport adapter', () => {
@@ -97,18 +97,18 @@ describe('resolveDelegatorConfig', () => {
       expect(resolved.snapshot.maxSnapshots).toBe(5);
     });
 
-    it('should preserve custom defaults', () => {
+    it('should preserve custom delegation config', () => {
       const config: DelegatorConfig = {
         ...minimalConfig,
-        defaults: {
+        delegation: {
           ttlSeconds: 7200,
           accessMode: 'ro',
         },
       };
 
       const resolved = resolveDelegatorConfig(config);
-      expect(resolved.defaults.ttlSeconds).toBe(7200);
-      expect(resolved.defaults.accessMode).toBe('ro');
+      expect(resolved.delegation.ttlSeconds).toBe(7200);
+      expect(resolved.delegation.accessMode).toBe('ro');
     });
 
     it('should preserve hooks', () => {
@@ -158,17 +158,17 @@ describe('resolveDelegatorConfig', () => {
       expect(resolved.snapshot.maxSnapshots).toBe(DEFAULT_SNAPSHOT.maxSnapshots);
     });
 
-    it('should merge partial defaults with defaults', () => {
+    it('should merge partial delegation config with defaults', () => {
       const config: DelegatorConfig = {
         ...minimalConfig,
-        defaults: {
+        delegation: {
           ttlSeconds: 1800,
         },
       };
 
       const resolved = resolveDelegatorConfig(config);
-      expect(resolved.defaults.ttlSeconds).toBe(1800);
-      expect(resolved.defaults.accessMode).toBe('rw');
+      expect(resolved.delegation.ttlSeconds).toBe(1800);
+      expect(resolved.delegation.accessMode).toBe('rw');
     });
   });
 });

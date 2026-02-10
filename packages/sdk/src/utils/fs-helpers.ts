@@ -10,7 +10,7 @@ import { join } from 'node:path';
 /**
  * Cleans up stale directories that are not in the active set.
  * 
- * Used by both EnvironmentBuilder (delegator) and WorkspaceManager (executor)
+ * Used by both EnvironmentManager (delegator) and WorkspaceManager (executor)
  * to remove directories from previous runs that were not properly cleaned up.
  * 
  * @param baseDir - Root directory containing subdirectories to check

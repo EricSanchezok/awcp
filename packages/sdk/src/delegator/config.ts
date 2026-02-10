@@ -2,39 +2,25 @@
  * AWCP Delegator Configuration
  */
 
-import type { Delegation, AccessMode, DelegatorTransportAdapter, SnapshotPolicy, EnvironmentSnapshot, LifecycleConfig } from '@awcp/core';
-import type { AdmissionConfig, AdmissionResult } from './admission.js';
+import type { Delegation, AccessMode, DelegatorTransportAdapter, SnapshotPolicy, EnvironmentSnapshot } from '@awcp/core';
+import type { AdmissionConfig } from './admission.js';
 
 // Re-export for convenience
 export type { AdmissionConfig } from './admission.js';
 
-/**
- * Snapshot policy configuration
- */
 export interface SnapshotConfig {
-  /** Snapshot mode: auto=immediate apply, staged=store for selection, discard=no storage */
   mode?: SnapshotPolicy;
-  /** Retention time in ms for staged snapshots (default: 30 minutes) */
   retentionMs?: number;
-  /** Maximum snapshots per delegation (default: 10) */
   maxSnapshots?: number;
 }
 
-/**
- * Default values for delegations
- */
-export interface DelegationDefaults {
-  /** Default TTL in seconds (default: 3600) */
+export interface DelegationConfig {
   ttlSeconds?: number;
-  /** Default access mode (default: 'rw') */
   accessMode?: AccessMode;
 }
 
-/**
- * Lifecycle hooks for Delegator events
- */
 export interface DelegatorHooks {
-  onAdmissionCheck?: (localDir: string) => Promise<AdmissionResult>;
+  onAdmissionCheck?: (localDir: string) => Promise<void>;
   onDelegationCreated?: (delegation: Delegation) => void;
   onDelegationStarted?: (delegation: Delegation) => void;
   onDelegationCompleted?: (delegation: Delegation) => void;
@@ -43,62 +29,45 @@ export interface DelegatorHooks {
   onError?: (delegationId: string, error: Error) => void;
 }
 
-/**
- * AWCP Delegator Configuration
- */
 export interface DelegatorConfig {
-  /** Base directory for all delegation data (environments, snapshots) */
   baseDir: string;
-  /** Transport adapter for data plane */
   transport: DelegatorTransportAdapter;
-  /** Admission control */
   admission?: AdmissionConfig;
-  /** Snapshot policy */
   snapshot?: SnapshotConfig;
-  /** Default values for delegations */
-  defaults?: DelegationDefaults;
-  /** Process lifecycle */
-  lifecycle?: LifecycleConfig;
-  /** Lifecycle hooks */
+  delegation?: DelegationConfig;
   hooks?: DelegatorHooks;
 }
 
-/**
- * Default admission thresholds
- */
 export const DEFAULT_ADMISSION = {
   maxTotalBytes: 100 * 1024 * 1024,      // 100MB
   maxFileCount: 10000,
   maxSingleFileBytes: 50 * 1024 * 1024,  // 50MB
+  sensitivePatterns: [
+    '.env', '.env.*',
+    '*.pem', '*.key', '*.p12', '*.pfx',
+    'id_rsa', 'id_rsa.*', 'id_ed25519', 'id_ed25519.*', 'id_ecdsa', 'id_ecdsa.*',
+    'credentials.json', 'service-account*.json',
+    '.npmrc', '.pypirc',
+  ],
 } as const;
 
-/**
- * Default snapshot settings
- */
 export const DEFAULT_SNAPSHOT = {
   mode: 'auto' as SnapshotPolicy,
   retentionMs: 30 * 60 * 1000,           // 30 minutes
   maxSnapshots: 10,
 } as const;
 
-/**
- * Default delegation settings
- */
 export const DEFAULT_DELEGATION = {
   ttlSeconds: 3600,
   accessMode: 'rw' as AccessMode,
 } as const;
 
-/**
- * Resolved configuration with all defaults applied
- */
 export interface ResolvedDelegatorConfig {
   baseDir: string;
   transport: DelegatorTransportAdapter;
   admission: Required<AdmissionConfig>;
   snapshot: Required<SnapshotConfig>;
-  defaults: Required<DelegationDefaults>;
-  lifecycle: Required<LifecycleConfig>;
+  delegation: Required<DelegationConfig>;
   hooks: DelegatorHooks;
 }
 
@@ -110,19 +79,17 @@ export function resolveDelegatorConfig(config: DelegatorConfig): ResolvedDelegat
       maxTotalBytes: config.admission?.maxTotalBytes ?? DEFAULT_ADMISSION.maxTotalBytes,
       maxFileCount: config.admission?.maxFileCount ?? DEFAULT_ADMISSION.maxFileCount,
       maxSingleFileBytes: config.admission?.maxSingleFileBytes ?? DEFAULT_ADMISSION.maxSingleFileBytes,
+      sensitivePatterns: config.admission?.sensitivePatterns ?? [...DEFAULT_ADMISSION.sensitivePatterns],
+      skipSensitiveCheck: config.admission?.skipSensitiveCheck ?? false,
     },
     snapshot: {
       mode: config.snapshot?.mode ?? DEFAULT_SNAPSHOT.mode,
       retentionMs: config.snapshot?.retentionMs ?? DEFAULT_SNAPSHOT.retentionMs,
       maxSnapshots: config.snapshot?.maxSnapshots ?? DEFAULT_SNAPSHOT.maxSnapshots,
     },
-    defaults: {
-      ttlSeconds: config.defaults?.ttlSeconds ?? DEFAULT_DELEGATION.ttlSeconds,
-      accessMode: config.defaults?.accessMode ?? DEFAULT_DELEGATION.accessMode,
-    },
-    lifecycle: {
-      cleanupOnShutdown: config.lifecycle?.cleanupOnShutdown ?? true,
-      cleanupStaleOnStartup: config.lifecycle?.cleanupStaleOnStartup ?? true,
+    delegation: {
+      ttlSeconds: config.delegation?.ttlSeconds ?? DEFAULT_DELEGATION.ttlSeconds,
+      accessMode: config.delegation?.accessMode ?? DEFAULT_DELEGATION.accessMode,
     },
     hooks: config.hooks ?? {},
   };

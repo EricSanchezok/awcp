@@ -12,7 +12,6 @@ import type {
   EnvironmentDeclaration,
   ListenerAdapter,
   ListenerInfo,
-  LifecycleConfig,
 } from '@awcp/core';
 
 export interface ExecutorAdmissionConfig {
@@ -49,7 +48,6 @@ export interface ExecutorConfig {
   sandbox?: SandboxProfile;
   admission?: ExecutorAdmissionConfig;
   defaults?: ExecutorDefaults;
-  lifecycle?: LifecycleConfig;
   hooks?: ExecutorHooks;
   listeners?: ListenerAdapter[];
 }
@@ -64,10 +62,6 @@ export const DEFAULT_EXECUTOR_CONFIG = {
     autoAccept: true,
     resultRetentionMs: 30 * 60 * 1000,
   },
-  lifecycle: {
-    cleanupOnShutdown: true,
-    cleanupStaleOnStartup: true,
-  },
   sandbox: {
     cwdOnly: true,
     allowNetwork: true,
@@ -81,7 +75,6 @@ export interface ResolvedExecutorConfig {
   sandbox: SandboxProfile;
   admission: Required<ExecutorAdmissionConfig>;
   defaults: Required<ExecutorDefaults>;
-  lifecycle: Required<LifecycleConfig>;
   hooks: ExecutorHooks;
   listeners: ListenerAdapter[];
 }
@@ -99,10 +92,6 @@ export function resolveExecutorConfig(config: ExecutorConfig): ResolvedExecutorC
     defaults: {
       autoAccept: config.defaults?.autoAccept ?? DEFAULT_EXECUTOR_CONFIG.defaults.autoAccept,
       resultRetentionMs: config.defaults?.resultRetentionMs ?? DEFAULT_EXECUTOR_CONFIG.defaults.resultRetentionMs,
-    },
-    lifecycle: {
-      cleanupOnShutdown: config.lifecycle?.cleanupOnShutdown ?? DEFAULT_EXECUTOR_CONFIG.lifecycle.cleanupOnShutdown,
-      cleanupStaleOnStartup: config.lifecycle?.cleanupStaleOnStartup ?? DEFAULT_EXECUTOR_CONFIG.lifecycle.cleanupStaleOnStartup,
     },
     hooks: config.hooks ?? {},
     listeners: config.listeners ?? [],

@@ -4,7 +4,7 @@ export {
   type DelegatorConfig,
   type SnapshotConfig,
   type AdmissionConfig,
-  type DelegationDefaults,
+  type DelegationConfig,
   type DelegatorHooks,
   type ResolvedDelegatorConfig,
   DEFAULT_ADMISSION,
@@ -27,7 +27,8 @@ export {
 } from './bin/client.js';
 
 // Utilities
-export { AdmissionController, type AdmissionResult, type WorkspaceStats } from './admission.js';
-export { EnvironmentBuilder, type EnvironmentManifest, type EnvironmentBuildResult, type EnvironmentBuilderConfig } from './environment-builder.js';
+export { AdmissionController, type WorkspaceStats } from './admission.js';
+export { DelegationManager, type DelegationManagerConfig } from './delegation-manager.js';
+export { EnvironmentManager, type EnvironmentManifest, type EnvironmentBuildResult, type EnvironmentManagerConfig } from './environment-manager.js';
 export { ExecutorClient, type InviteResponse } from './executor-client.js';
 export { type ResourceAdapter, ResourceAdapterRegistry, FsResourceAdapter } from './resource-adapters/index.js';

@@ -1,5 +1,5 @@
 /**
- * Environment Builder - builds environment directories for delegation
+ * Environment Manager - manages environment directories for delegation
  */
 
 import { mkdir, rm, writeFile } from 'node:fs/promises';
@@ -27,25 +27,20 @@ export interface EnvironmentBuildResult {
   manifest: EnvironmentManifest;
 }
 
-export interface EnvironmentBuilderConfig {
+export interface EnvironmentManagerConfig {
   baseDir?: string;
 }
 
-export class EnvironmentBuilder {
+export class EnvironmentManager {
   private baseDir: string;
   private adapters: ResourceAdapterRegistry;
-  private environments = new Map<string, EnvironmentBuildResult>();
 
-  constructor(config?: EnvironmentBuilderConfig) {
+  constructor(config?: EnvironmentManagerConfig) {
     this.baseDir = config?.baseDir ?? DEFAULT_ENV_BASE;
     this.adapters = new ResourceAdapterRegistry();
     this.adapters.register(new FsResourceAdapter());
   }
 
-  /**
-   * Build an environment directory from spec.
-   * Returns envRoot with trailing slash for SSHFS compatibility.
-   */
   async build(delegationId: string, spec: EnvironmentSpec): Promise<EnvironmentBuildResult> {
     const envRoot = join(this.baseDir, delegationId);
     await mkdir(envRoot, { recursive: true });
@@ -72,28 +67,15 @@ export class EnvironmentBuilder {
     await mkdir(awcpDir, { recursive: true });
     await writeFile(join(awcpDir, 'manifest.json'), JSON.stringify(manifest, null, 2));
 
-    const result = { envRoot: `${envRoot}/`, manifest };
-    this.environments.set(delegationId, result);
-    return result;
-  }
-
-  get(delegationId: string): EnvironmentBuildResult | undefined {
-    return this.environments.get(delegationId);
+    return { envRoot: `${envRoot}/`, manifest };
   }
 
   async release(delegationId: string): Promise<void> {
-    const env = this.environments.get(delegationId);
-    if (!env) return;
-
-    try {
-      await rm(env.envRoot, { recursive: true, force: true });
-    } catch {
-      // Directory may already be removed
-    }
-    this.environments.delete(delegationId);
+    const envRoot = join(this.baseDir, delegationId);
+    await rm(envRoot, { recursive: true, force: true }).catch(() => {});
   }
 
-  async cleanupStale(): Promise<number> {
-    return cleanupStaleDirectories(this.baseDir, new Set(this.environments.keys()));
+  async cleanupStale(knownIds: Set<string>): Promise<number> {
+    return cleanupStaleDirectories(this.baseDir, knownIds);
   }
 }

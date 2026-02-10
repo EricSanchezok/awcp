@@ -3,8 +3,6 @@
  */
 
 import { EventEmitter } from 'node:events';
-import { readdir, rm } from 'node:fs/promises';
-import { join } from 'node:path';
 import {
   type InviteMessage,
   type StartMessage,
@@ -88,29 +86,17 @@ export class ExecutorService implements ExecutorRequestHandler {
   }
 
   async initialize(): Promise<void> {
-    if (!this.config.lifecycle.cleanupStaleOnStartup) return;
-
-    const entries = await readdir(this.config.workDir).catch(() => []);
-    let cleaned = 0;
-    for (const entry of entries) {
-      const workPath = join(this.config.workDir, entry);
-      await this.transport.teardown({ delegationId: entry, workDir: workPath }).catch(() => {});
-      await rm(workPath, { recursive: true, force: true }).catch(() => {});
-      cleaned++;
-    }
-    if (cleaned > 0) {
-      console.log(`[AWCP:Executor] Cleaned ${cleaned} stale workspace(s) from previous run`);
-    }
+    await this.transport.initialize?.(this.config.workDir);
+    await this.workspace.cleanupStale();
   }
 
   async shutdown(): Promise<void> {
-    if (!this.config.lifecycle.cleanupOnShutdown) return;
+    await this.transport.shutdown?.();
 
-    for (const [id, delegation] of this.activeDelegations) {
-      console.log(`[AWCP:Executor] Shutting down delegation ${id}`);
-      await this.transport.teardown({ delegationId: id, workDir: delegation.workPath }).catch(() => {});
-      await this.workspace.release(delegation.workPath);
+    for (const delegation of this.activeDelegations.values()) {
+      await this.workspace.release(delegation.workPath).catch(() => {});
     }
+
     this.activeDelegations.clear();
     this.pendingInvitations.clear();
     this.completedDelegations.clear();
@@ -352,12 +338,12 @@ export class ExecutorService implements ExecutorRequestHandler {
         environment,
       });
 
-      console.log(`[AWCP:Executor] Task ${delegationId} completed, tearing down transport...`);
-      const teardownResult = await this.transport.teardown({ delegationId, workDir: actualPath });
+      console.log(`[AWCP:Executor] Task ${delegationId} completed, capturing snapshot...`);
+      const snapshotResult = await this.transport.captureSnapshot?.({ delegationId, workDir: actualPath });
 
       const snapshotId = generateSnapshotId();
 
-      if (teardownResult.snapshotBase64) {
+      if (snapshotResult?.snapshotBase64) {
         const snapshotEvent: TaskSnapshotEvent = {
           delegationId,
           type: 'snapshot',
@@ -365,7 +351,7 @@ export class ExecutorService implements ExecutorRequestHandler {
           snapshotId,
           summary: result.summary,
           highlights: result.highlights,
-          snapshotBase64: teardownResult.snapshotBase64,
+          snapshotBase64: snapshotResult.snapshotBase64,
           recommended: true,
         };
         eventEmitter.emit('event', snapshotEvent);
@@ -377,8 +363,8 @@ export class ExecutorService implements ExecutorRequestHandler {
         timestamp: new Date().toISOString(),
         summary: result.summary,
         highlights: result.highlights,
-        snapshotIds: teardownResult.snapshotBase64 ? [snapshotId] : undefined,
-        recommendedSnapshotId: teardownResult.snapshotBase64 ? snapshotId : undefined,
+        snapshotIds: snapshotResult?.snapshotBase64 ? [snapshotId] : undefined,
+        recommendedSnapshotId: snapshotResult?.snapshotBase64 ? snapshotId : undefined,
       };
 
       eventEmitter.emit('event', doneEvent);
@@ -392,25 +378,18 @@ export class ExecutorService implements ExecutorRequestHandler {
         id: delegationId,
         completedAt: new Date(),
         state: 'completed',
-        snapshot: teardownResult.snapshotBase64 ? {
+        snapshot: snapshotResult?.snapshotBase64 ? {
           id: snapshotId,
           summary: result.summary,
           highlights: result.highlights,
-          snapshotBase64: teardownResult.snapshotBase64,
+          snapshotBase64: snapshotResult.snapshotBase64,
         } : undefined,
       });
       this.scheduleResultCleanup(delegationId);
 
-      console.log(`[AWCP:Executor] Delegation ${delegationId} moved to completed, removing from active`);
-      this.activeDelegations.delete(delegationId);
-      await this.workspace.release(actualPath);
+      await this.release(delegationId);
     } catch (error) {
       console.error(`[AWCP:Executor] Task ${delegationId} failed:`, error instanceof Error ? error.message : error);
-      const delegation = this.activeDelegations.get(delegationId);
-      if (delegation) {
-        await this.transport.teardown({ delegationId, workDir: delegation.workPath }).catch(() => {});
-        await this.workspace.release(delegation.workPath);
-      }
 
       const errorEvent: TaskErrorEvent = {
         delegationId,
@@ -443,8 +422,7 @@ export class ExecutorService implements ExecutorRequestHandler {
       });
       this.scheduleResultCleanup(delegationId);
 
-      console.log(`[AWCP:Executor] Delegation ${delegationId} moved to error state, removing from active`);
-      this.activeDelegations.delete(delegationId);
+      await this.release(delegationId);
     }
   }
 
@@ -452,14 +430,7 @@ export class ExecutorService implements ExecutorRequestHandler {
     const { delegationId } = error;
     console.log(`[AWCP:Executor] Received ERROR message for ${delegationId}: ${error.code} - ${error.message}`);
 
-    const delegation = this.activeDelegations.get(delegationId);
-    if (delegation) {
-      await this.transport.teardown({ delegationId, workDir: delegation.workPath }).catch(() => {});
-      console.log(`[AWCP:Executor] Delegation ${delegationId} removed by delegator error`);
-      this.activeDelegations.delete(delegationId);
-      await this.workspace.release(delegation.workPath);
-    }
-
+    await this.release(delegationId);
     this.pendingInvitations.delete(delegationId);
 
     this.config.hooks.onError?.(
@@ -472,8 +443,7 @@ export class ExecutorService implements ExecutorRequestHandler {
     const delegation = this.activeDelegations.get(delegationId);
     if (delegation) {
       console.log(`[AWCP:Executor] Cancelling active delegation ${delegationId}`);
-      await this.transport.teardown({ delegationId, workDir: delegation.workPath }).catch(() => {});
-      
+
       const errorEvent: TaskErrorEvent = {
         delegationId,
         type: 'error',
@@ -482,10 +452,8 @@ export class ExecutorService implements ExecutorRequestHandler {
         message: 'Delegation cancelled',
       };
       delegation.eventEmitter.emit('event', errorEvent);
-      
-      console.log(`[AWCP:Executor] Delegation ${delegationId} removed by cancellation`);
-      this.activeDelegations.delete(delegationId);
-      await this.workspace.release(delegation.workPath);
+
+      await this.release(delegationId);
       this.config.hooks.onError?.(
         delegationId,
         new CancelledError('Delegation cancelled by Delegator', undefined, delegationId)
@@ -550,6 +518,15 @@ export class ExecutorService implements ExecutorRequestHandler {
 
   acknowledgeResult(delegationId: string): void {
     this.completedDelegations.delete(delegationId);
+  }
+
+  private async release(delegationId: string): Promise<void> {
+    const delegation = this.activeDelegations.get(delegationId);
+    if (!delegation) return;
+
+    await this.transport.release({ delegationId, workDir: delegation.workPath }).catch(() => {});
+    await this.workspace.release(delegation.workPath);
+    this.activeDelegations.delete(delegationId);
   }
 
   private scheduleResultCleanup(delegationId: string): void {
