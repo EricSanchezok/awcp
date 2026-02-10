@@ -41,7 +41,6 @@ export {
   type ExecutorHooks,
   type TaskStartContext,
   WorkspaceManager,
-  type WorkspaceValidation,
   A2ATaskExecutor,
 } from './executor/index.js';
 

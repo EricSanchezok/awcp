@@ -2,7 +2,7 @@
  * Transport Adapter Interfaces
  */
 
-import type { TransportType, WorkDirInfo } from './messages.js';
+import type { TransportType, TransportHandle } from './messages.js';
 
 export interface TransportCapabilities {
   supportsSnapshots: boolean;
@@ -15,24 +15,20 @@ export interface TransportPrepareParams {
   ttlSeconds: number;
 }
 
-export interface TransportPrepareResult {
-  workDirInfo: WorkDirInfo;
-}
-
 export interface TransportSetupParams {
   delegationId: string;
-  workDirInfo: WorkDirInfo;
-  workDir: string;
+  handle: TransportHandle;
+  localPath: string;
 }
 
 export interface TransportReleaseParams {
   delegationId: string;
-  workDir: string;
+  localPath: string;
 }
 
 export interface TransportCaptureSnapshotParams {
   delegationId: string;
-  workDir: string;
+  localPath: string;
 }
 
 export interface TransportCaptureSnapshotResult {
@@ -62,7 +58,7 @@ export interface DelegatorTransportAdapter {
   readonly capabilities: TransportCapabilities;
   initialize?(): Promise<void>;
   shutdown?(): Promise<void>;
-  prepare(params: TransportPrepareParams): Promise<TransportPrepareResult>;
+  prepare(params: TransportPrepareParams): Promise<TransportHandle>;
   applySnapshot?(params: TransportApplySnapshotParams): Promise<void>;
   release(delegationId: string): Promise<void>;
 }
@@ -78,6 +74,3 @@ export interface ExecutorTransportAdapter {
   captureSnapshot?(params: TransportCaptureSnapshotParams): Promise<TransportCaptureSnapshotResult>;
   release(params: TransportReleaseParams): Promise<void>;
 }
-
-/** Full transport adapter implementing both sides */
-export type TransportAdapter = DelegatorTransportAdapter & ExecutorTransportAdapter;

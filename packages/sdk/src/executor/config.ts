@@ -66,16 +66,14 @@ export const DEFAULT_ASSIGNMENT = {
   resultRetentionMs: 30 * 60 * 1000,       // 30 minutes
 } as const;
 
-export interface ResolvedAssignmentConfig {
-  sandbox: SandboxProfile;
-  resultRetentionMs: number;
-}
-
 export interface ResolvedExecutorConfig {
   workDir: string;
   transport: ExecutorTransportAdapter;
   admission: Required<AdmissionConfig>;
-  assignment: ResolvedAssignmentConfig;
+  assignment: {
+    sandbox: Required<SandboxProfile>;
+    resultRetentionMs: number;
+  };
   hooks: ExecutorHooks;
   listeners: ListenerAdapter[];
 }
@@ -90,7 +88,11 @@ export function resolveExecutorConfig(config: ExecutorConfig): ResolvedExecutorC
       allowedAccessModes: config.admission?.allowedAccessModes ?? [...DEFAULT_ADMISSION.allowedAccessModes],
     },
     assignment: {
-      sandbox: config.assignment?.sandbox ?? { ...DEFAULT_ASSIGNMENT.sandbox },
+      sandbox: {
+        cwdOnly: config.assignment?.sandbox?.cwdOnly ?? DEFAULT_ASSIGNMENT.sandbox.cwdOnly,
+        allowNetwork: config.assignment?.sandbox?.allowNetwork ?? DEFAULT_ASSIGNMENT.sandbox.allowNetwork,
+        allowExec: config.assignment?.sandbox?.allowExec ?? DEFAULT_ASSIGNMENT.sandbox.allowExec,
+      },
       resultRetentionMs: config.assignment?.resultRetentionMs ?? DEFAULT_ASSIGNMENT.resultRetentionMs,
     },
     hooks: config.hooks ?? {},

@@ -6,7 +6,6 @@ export {
   type DelegationConfig,
   type DelegatorHooks,
   type ResolvedDelegatorConfig,
-  type ResolvedDelegationConfig,
   DEFAULT_ADMISSION,
   DEFAULT_DELEGATION,
   resolveDelegatorConfig,

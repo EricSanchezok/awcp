@@ -138,16 +138,6 @@ export class ExecutorService implements ExecutorRequestHandler {
     const workPath = this.workspaceManager.allocate(delegationId);
 
     try {
-      const validation = this.workspaceManager.validate(workPath);
-      if (!validation.valid) {
-        throw new AwcpError(
-          ErrorCodes.WORKDIR_DENIED,
-          validation.reason ?? 'Workspace validation failed',
-          'Check workDir configuration',
-          delegationId,
-        );
-      }
-
       const assignment = createAssignment({ id: delegationId, invite, workPath });
       this.assignments.set(delegationId, assignment);
       this.stateMachines.set(delegationId, new AssignmentStateMachine());
@@ -188,12 +178,7 @@ export class ExecutorService implements ExecutorRequestHandler {
       );
     }
 
-    const result = this.transitionState(delegationId, { type: 'RECEIVE_START' });
-    if (!result.success) {
-      throw new Error(
-        `Cannot START delegation ${delegationId} in state '${assignment.state}': ${result.error}`
-      );
-    }
+    this.transitionState(delegationId, { type: 'RECEIVE_START' });
 
     assignment.lease = start.lease;
     assignment.startedAt = new Date().toISOString();
@@ -218,12 +203,7 @@ export class ExecutorService implements ExecutorRequestHandler {
       );
     }
 
-    const result = this.transitionState(delegationId, { type: 'RECEIVE_ERROR' });
-    if (!result.success) {
-      throw new Error(
-        `Cannot process ERROR for delegation ${delegationId} in state '${assignment.state}': ${result.error}`
-      );
-    }
+    this.transitionState(delegationId, { type: 'RECEIVE_ERROR' });
 
     console.log(`[AWCP:Executor] Received ERROR for ${delegationId}: ${error.code} - ${error.message}`);
 
@@ -296,8 +276,8 @@ export class ExecutorService implements ExecutorRequestHandler {
       console.log(`[AWCP:Executor] Task ${delegationId} setting up transport (${this.transport.type})...`);
       const actualPath = await this.transport.setup({
         delegationId,
-        workDirInfo: start.workDir,
-        workDir: assignment.workPath,
+        handle: start.transport,
+        localPath: assignment.workPath,
       });
 
       this.config.hooks.onTaskStart?.({
@@ -326,7 +306,7 @@ export class ExecutorService implements ExecutorRequestHandler {
       });
 
       console.log(`[AWCP:Executor] Task ${delegationId} completed, capturing snapshot...`);
-      const snapshotResult = await this.transport.captureSnapshot?.({ delegationId, workDir: actualPath });
+      const snapshotResult = await this.transport.captureSnapshot?.({ delegationId, localPath: actualPath });
 
       const snapshotId = generateSnapshotId();
 
@@ -412,12 +392,7 @@ export class ExecutorService implements ExecutorRequestHandler {
       throw new Error(`Delegation not found: ${delegationId}`);
     }
 
-    const result = this.transitionState(delegationId, { type: 'CANCEL' });
-    if (!result.success) {
-      throw new Error(
-        `Cannot cancel delegation ${delegationId} in state '${assignment.state}': ${result.error}`
-      );
-    }
+    this.transitionState(delegationId, { type: 'CANCEL' });
 
     console.log(`[AWCP:Executor] Cancelling delegation ${delegationId}`);
 
@@ -505,22 +480,24 @@ export class ExecutorService implements ExecutorRequestHandler {
   private transitionState(
     delegationId: string,
     event: AssignmentEvent,
-  ): ReturnType<AssignmentStateMachine['transition']> {
+  ): void {
     const sm = this.stateMachines.get(delegationId)!;
     const assignment = this.assignments.get(delegationId)!;
     const result = sm.transition(event);
-    if (result.success) {
-      assignment.state = sm.getState();
-      assignment.updatedAt = new Date().toISOString();
+    if (!result.success) {
+      throw new Error(
+        `Cannot transition assignment ${delegationId} (${event.type}) in state '${assignment.state}': ${result.error}`
+      );
     }
-    return result;
+    assignment.state = sm.getState();
+    assignment.updatedAt = new Date().toISOString();
   }
 
   private async release(delegationId: string): Promise<void> {
     const assignment = this.assignments.get(delegationId);
     if (!assignment) return;
 
-    await this.transport.release({ delegationId, workDir: assignment.workPath }).catch(() => {});
+    await this.transport.release({ delegationId, localPath: assignment.workPath }).catch(() => {});
     await this.workspaceManager.release(assignment.workPath);
     this.eventEmitters.delete(delegationId);
   }

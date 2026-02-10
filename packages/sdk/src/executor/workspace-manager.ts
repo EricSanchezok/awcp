@@ -6,11 +6,6 @@ import { mkdir, readdir, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { cleanupStaleDirectories } from '../utils/index.js';
 
-export interface WorkspaceValidation {
-  valid: boolean;
-  reason?: string;
-}
-
 export class WorkspaceManager {
   private workDir: string;
   private allocated = new Set<string>();
@@ -23,13 +18,6 @@ export class WorkspaceManager {
     const path = join(this.workDir, delegationId);
     this.allocated.add(path);
     return path;
-  }
-
-  validate(path: string): WorkspaceValidation {
-    if (!path.startsWith(this.workDir)) {
-      return { valid: false, reason: `Path must be under ${this.workDir}` };
-    }
-    return { valid: true };
   }
 
   async prepare(path: string): Promise<void> {
@@ -51,13 +39,5 @@ export class WorkspaceManager {
 
   async cleanupStale(knownIds: Set<string>): Promise<number> {
     return cleanupStaleDirectories(this.workDir, knownIds);
-  }
-
-  isAllocated(path: string): boolean {
-    return this.allocated.has(path);
-  }
-
-  getAllocated(): string[] {
-    return Array.from(this.allocated);
   }
 }

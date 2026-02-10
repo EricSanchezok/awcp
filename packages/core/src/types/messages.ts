@@ -104,7 +104,7 @@ export interface SshCredential {
   certificate: string;
 }
 
-export interface SshfsWorkDirInfo {
+export interface SshfsTransportHandle {
   transport: 'sshfs';
   endpoint: SshEndpoint;
   exportLocator: string;
@@ -112,13 +112,13 @@ export interface SshfsWorkDirInfo {
   options?: Record<string, string>;
 }
 
-export interface ArchiveWorkDirInfo {
+export interface ArchiveTransportHandle {
   transport: 'archive';
   workspaceBase64: string;
   checksum: string;
 }
 
-export interface StorageWorkDirInfo {
+export interface StorageTransportHandle {
   transport: 'storage';
   downloadUrl: string;
   uploadUrl: string;
@@ -132,7 +132,7 @@ export type GitCredential =
   | { type: 'ssh'; privateKey?: string }
   | { type: 'none' };
 
-export interface GitWorkDirInfo {
+export interface GitTransportHandle {
   transport: 'git';
   repoUrl: string;
   baseBranch: string;
@@ -140,7 +140,7 @@ export interface GitWorkDirInfo {
   auth?: GitCredential;
 }
 
-export type WorkDirInfo = SshfsWorkDirInfo | ArchiveWorkDirInfo | StorageWorkDirInfo | GitWorkDirInfo;
+export type TransportHandle = SshfsTransportHandle | ArchiveTransportHandle | StorageTransportHandle | GitTransportHandle;
 
 export interface BaseMessage {
   version: typeof PROTOCOL_VERSION;
@@ -169,7 +169,7 @@ export interface AcceptMessage extends BaseMessage {
 export interface StartMessage extends BaseMessage {
   type: 'START';
   lease: ActiveLease;
-  workDir: WorkDirInfo;
+  transport: TransportHandle;
 }
 
 /** DONE message: Executor → Delegator (via SSE) */

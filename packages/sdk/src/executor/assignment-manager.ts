@@ -19,17 +19,6 @@ export class AssignmentManager {
     await writeFile(filePath, JSON.stringify(assignment, null, 2));
   }
 
-  async load(assignmentId: string): Promise<Assignment | undefined> {
-    try {
-      const filePath = join(this.baseDir, `${assignmentId}.json`);
-      const content = await readFile(filePath, 'utf-8');
-      return JSON.parse(content) as Assignment;
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
-      throw error;
-    }
-  }
-
   async loadAll(): Promise<Assignment[]> {
     try {
       const entries = await readdir(this.baseDir);

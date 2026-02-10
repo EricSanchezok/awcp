@@ -73,17 +73,15 @@ export const DEFAULT_DELEGATION = {
   },
 } as const;
 
-export interface ResolvedDelegationConfig {
-  lease: Required<NonNullable<DelegationConfig['lease']>>;
-  snapshot: Required<NonNullable<DelegationConfig['snapshot']>>;
-  connection: Required<NonNullable<DelegationConfig['connection']>>;
-}
-
 export interface ResolvedDelegatorConfig {
   baseDir: string;
   transport: DelegatorTransportAdapter;
   admission: Required<AdmissionConfig>;
-  delegation: ResolvedDelegationConfig;
+  delegation: {
+    lease: Required<NonNullable<DelegationConfig['lease']>>;
+    snapshot: Required<NonNullable<DelegationConfig['snapshot']>>;
+    connection: Required<NonNullable<DelegationConfig['connection']>>;
+  };
   hooks: DelegatorHooks;
 }
 

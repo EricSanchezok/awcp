@@ -7,7 +7,7 @@
 import { describe, it, expect } from 'vitest';
 import { resolveDelegatorConfig, DEFAULT_ADMISSION, DEFAULT_DELEGATION } from '../../src/delegator/config.js';
 import type { DelegatorConfig } from '../../src/delegator/config.js';
-import type { DelegatorTransportAdapter, SshfsWorkDirInfo } from '@awcp/core';
+import type { DelegatorTransportAdapter, SshfsTransportHandle } from '@awcp/core';
 
 const mockTransport: DelegatorTransportAdapter = {
   type: 'sshfs',
@@ -16,13 +16,11 @@ const mockTransport: DelegatorTransportAdapter = {
     liveSync: true,
   },
   prepare: async () => ({
-    workDirInfo: {
-      transport: 'sshfs',
-      endpoint: { host: 'localhost', port: 22, user: 'test' },
-      exportLocator: '/tmp/test',
-      credential: { privateKey: '', certificate: '' },
-    } as SshfsWorkDirInfo,
-  }),
+    transport: 'sshfs',
+    endpoint: { host: 'localhost', port: 22, user: 'test' },
+    exportLocator: '/tmp/test',
+    credential: { privateKey: '', certificate: '' },
+  }) as SshfsTransportHandle,
   release: async () => {},
 };
 

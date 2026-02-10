@@ -13,7 +13,6 @@ import {
   type AcceptMessage,
   type DoneMessage,
   type ErrorMessage,
-  type AwcpMessage,
   type DelegatorTransportAdapter,
   type TaskEvent,
   type TaskSnapshotEvent,
@@ -188,7 +187,11 @@ export class DelegatorService implements DelegatorRequestHandler {
 
       return delegationId;
     } catch (error) {
-      await this.release(delegationId);
+      this.delegations.delete(delegationId);
+      this.stateMachines.delete(delegationId);
+      await this.transport.release(delegationId);
+      await this.environmentManager.release(delegationId);
+      await this.delegationManager.delete(delegationId).catch(() => {});
       throw error;
     }
   }
@@ -202,17 +205,12 @@ export class DelegatorService implements DelegatorRequestHandler {
       );
     }
 
-    const result = this.transitionState(message.delegationId, { type: 'RECEIVE_ACCEPT', message });
-    if (!result.success) {
-      throw new Error(
-        `Cannot accept delegation ${message.delegationId} in state '${delegation.state}': ${result.error}`
-      );
-    }
+    this.transitionState(message.delegationId, { type: 'RECEIVE_ACCEPT', message });
 
     delegation.executorWorkDir = message.executorWorkDir;
     delegation.executorConstraints = message.executorConstraints;
 
-    const { workDirInfo } = await this.transport.prepare({
+    const handle = await this.transport.prepare({
       delegationId: delegation.id,
       exportPath: delegation.exportPath!,
       ttlSeconds: delegation.leaseConfig.ttlSeconds,
@@ -230,7 +228,7 @@ export class DelegatorService implements DelegatorRequestHandler {
         expiresAt,
         accessMode: delegation.leaseConfig.accessMode,
       },
-      workDir: workDirInfo,
+      transport: handle,
     };
 
     const stream = await this.executorClient.connectTaskEvents(delegation.peerUrl, delegation.id);
@@ -251,6 +249,72 @@ export class DelegatorService implements DelegatorRequestHandler {
     this.consumeTaskEvents(delegation.id, stream).catch((error) => {
       console.error(`[AWCP:Delegator] SSE error for ${delegation.id}:`, error);
     });
+  }
+
+  async handleDone(message: DoneMessage): Promise<void> {
+    const delegation = this.delegations.get(message.delegationId);
+    if (!delegation) {
+      throw new Error(
+        `Unknown delegation for DONE: ${message.delegationId}` +
+        ` (known=[${Array.from(this.delegations.keys()).join(',')}])`
+      );
+    }
+
+    const stateMachine = this.stateMachines.get(message.delegationId)!;
+
+    if (stateMachine.getState() === 'started') {
+      this.transitionState(message.delegationId, { type: 'SETUP_COMPLETE' });
+    }
+
+    this.transitionState(message.delegationId, { type: 'RECEIVE_DONE', message });
+
+    delegation.result = {
+      summary: message.finalSummary,
+      highlights: message.highlights,
+    };
+    await this.persistDelegation(delegation.id);
+
+    const shouldReleaseNow = this.transport.capabilities.liveSync
+      || this.config.delegation.snapshot.mode === 'auto'
+      || this.shouldRelease(delegation);
+
+    if (shouldReleaseNow) {
+      await this.release(delegation.id);
+    }
+
+    this.config.hooks.onDelegationCompleted?.(delegation);
+  }
+
+  async handleError(message: ErrorMessage): Promise<void> {
+    const delegation = this.delegations.get(message.delegationId);
+    if (!delegation) {
+      throw new Error(
+        `Unknown delegation for ERROR: ${message.delegationId}` +
+        ` (known=[${Array.from(this.delegations.keys()).join(',')}])`
+      );
+    }
+
+    console.log(
+      `[AWCP:Delegator] Processing error for ${message.delegationId}` +
+      ` (state=${delegation.state}): ${message.code} - ${message.message}`
+    );
+
+    this.transitionState(message.delegationId, { type: 'RECEIVE_ERROR', message });
+
+    delegation.error = {
+      code: message.code,
+      message: message.message,
+      hint: message.hint,
+    };
+    await this.persistDelegation(delegation.id);
+
+    const error = new AwcpError(
+      message.code,
+      message.message,
+      message.hint,
+      delegation.id
+    );
+    this.config.hooks.onError?.(delegation.id, error);
   }
 
   private async consumeTaskEvents(delegationId: string, stream: TaskEventStream): Promise<void> {
@@ -324,6 +388,7 @@ export class DelegatorService implements DelegatorRequestHandler {
         hint: event.hint,
       };
       await this.handleError(errorMessage);
+      await this.release(delegationId);
     }
   }
 
@@ -401,105 +466,13 @@ export class DelegatorService implements DelegatorRequestHandler {
     }
   }
 
-  async handleDone(message: DoneMessage): Promise<void> {
-    const delegation = this.delegations.get(message.delegationId);
-    if (!delegation) {
-      throw new Error(
-        `Unknown delegation for DONE: ${message.delegationId}` +
-        ` (known=[${Array.from(this.delegations.keys()).join(',')}])`
-      );
-    }
-
-    const stateMachine = this.stateMachines.get(message.delegationId)!;
-
-    if (stateMachine.getState() === 'started') {
-      this.transitionState(message.delegationId, { type: 'SETUP_COMPLETE' });
-    }
-
-    const result = this.transitionState(message.delegationId, { type: 'RECEIVE_DONE', message });
-    if (!result.success) {
-      throw new Error(
-        `Cannot complete delegation ${message.delegationId} in state '${delegation.state}': ${result.error}`
-      );
-    }
-
-    delegation.result = {
-      summary: message.finalSummary,
-      highlights: message.highlights,
-    };
-    await this.persistDelegation(delegation.id);
-
-    const shouldReleaseNow = this.transport.capabilities.liveSync
-      || this.config.delegation.snapshot.mode === 'auto'
-      || this.shouldRelease(delegation);
-
-    if (shouldReleaseNow) {
-      await this.release(delegation.id);
-    }
-
-    this.config.hooks.onDelegationCompleted?.(delegation);
-  }
-
-  async handleError(message: ErrorMessage): Promise<void> {
-    const delegation = this.delegations.get(message.delegationId);
-    if (!delegation) {
-      throw new Error(
-        `Unknown delegation for ERROR: ${message.delegationId}` +
-        ` (known=[${Array.from(this.delegations.keys()).join(',')}])`
-      );
-    }
-
-    console.log(
-      `[AWCP:Delegator] Processing error for ${message.delegationId}` +
-      ` (state=${delegation.state}): ${message.code} - ${message.message}`
-    );
-
-    this.transitionState(message.delegationId, { type: 'RECEIVE_ERROR', message });
-
-    delegation.error = {
-      code: message.code,
-      message: message.message,
-      hint: message.hint,
-    };
-    await this.persistDelegation(delegation.id);
-
-    await this.release(delegation.id);
-
-    const error = new AwcpError(
-      message.code,
-      message.message,
-      message.hint,
-      delegation.id
-    );
-    this.config.hooks.onError?.(delegation.id, error);
-  }
-
-  async handleMessage(message: AwcpMessage): Promise<void> {
-    switch (message.type) {
-      case 'ACCEPT':
-        await this.handleAccept(message);
-        break;
-      case 'DONE':
-        await this.handleDone(message);
-        break;
-      case 'ERROR':
-        await this.handleError(message);
-        break;
-      default:
-        throw new Error(`Unexpected message type: ${(message as AwcpMessage).type}`);
-    }
-  }
-
   async cancel(delegationId: string): Promise<void> {
     const delegation = this.delegations.get(delegationId);
     if (!delegation) {
       throw new Error(`Unknown delegation: ${delegationId}`);
     }
 
-    const result = this.transitionState(delegationId, { type: 'CANCEL' });
-    if (!result.success) {
-      throw new Error(`Cannot cancel delegation in state ${delegation.state}`);
-    }
+    this.transitionState(delegationId, { type: 'CANCEL' });
 
     await this.persistDelegation(delegationId);
     await this.executorClient.sendCancel(delegation.peerUrl, delegationId).catch(console.error);
@@ -561,34 +534,6 @@ export class DelegatorService implements DelegatorRequestHandler {
     }
   }
 
-  async waitForCompletion(delegationId: string, timeoutMs: number = 60000): Promise<Delegation> {
-    const startTime = Date.now();
-
-    while (Date.now() - startTime < timeoutMs) {
-      const delegation = this.delegations.get(delegationId);
-      if (!delegation) {
-        throw new Error(`Unknown delegation: ${delegationId}`);
-      }
-
-      const stateMachine = this.stateMachines.get(delegationId)!;
-      if (stateMachine.isTerminal()) {
-        if (delegation.error) {
-          throw new AwcpError(
-            delegation.error.code,
-            delegation.error.message,
-            delegation.error.hint,
-            delegationId
-          );
-        }
-        return delegation;
-      }
-
-      await new Promise((resolve) => setTimeout(resolve, 100));
-    }
-
-    throw new Error('Timeout waiting for delegation to complete');
-  }
-
   getStatus(): DelegatorServiceStatus {
     return {
       activeDelegations: this.delegations.size,
@@ -644,15 +589,17 @@ export class DelegatorService implements DelegatorRequestHandler {
   private transitionState(
     delegationId: string,
     event: Parameters<DelegationStateMachine['transition']>[0]
-  ): ReturnType<DelegationStateMachine['transition']> {
+  ): void {
     const sm = this.stateMachines.get(delegationId)!;
     const delegation = this.delegations.get(delegationId)!;
     const result = sm.transition(event);
-    if (result.success) {
-      delegation.state = sm.getState();
-      delegation.updatedAt = new Date().toISOString();
+    if (!result.success) {
+      throw new Error(
+        `Cannot transition delegation ${delegationId} (${event.type}) in state '${delegation.state}': ${result.error}`
+      );
     }
-    return result;
+    delegation.state = sm.getState();
+    delegation.updatedAt = new Date().toISOString();
   }
 
   private async validateAndNormalizePath(localDir: string, delegationId: string): Promise<string> {

@@ -128,7 +128,7 @@ describe('DelegationStateMachine', () => {
         type: 'START',
         delegationId,
         lease: { expiresAt: new Date().toISOString(), accessMode: 'rw' },
-        workDir: {
+        transport: {
           transport: 'sshfs',
           endpoint: { host: 'localhost', port: 22, user: 'test' },
           exportLocator: '/tmp/test',

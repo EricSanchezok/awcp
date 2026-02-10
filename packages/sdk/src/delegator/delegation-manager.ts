@@ -19,17 +19,6 @@ export class DelegationManager {
     await writeFile(filePath, JSON.stringify(delegation, null, 2));
   }
 
-  async load(delegationId: string): Promise<Delegation | undefined> {
-    try {
-      const filePath = join(this.baseDir, `${delegationId}.json`);
-      const content = await readFile(filePath, 'utf-8');
-      return JSON.parse(content) as Delegation;
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
-      throw error;
-    }
-  }
-
   async loadAll(): Promise<Delegation[]> {
     try {
       const entries = await readdir(this.baseDir);
