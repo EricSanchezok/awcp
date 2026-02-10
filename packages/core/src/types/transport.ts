@@ -58,7 +58,6 @@ export interface DelegatorTransportAdapter {
   prepare(params: TransportPrepareParams): Promise<TransportPrepareResult>;
   applySnapshot?(params: TransportApplySnapshotParams): Promise<void>;
   cleanup(delegationId: string): Promise<void>;
-  shutdown?(): Promise<void>;
 }
 
 /** Transport adapter for Executor side */

@@ -62,7 +62,7 @@ async function main() {
 
   const gracefulShutdown = async (signal: string) => {
     console.log(`\n[Agent] Received ${signal}, shutting down...`);
-    await awcp.stop();
+    await awcp.shutdown();
     await gatewayManager.stop();
     process.exit(0);
   };

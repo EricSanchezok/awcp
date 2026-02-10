@@ -24,7 +24,7 @@ export interface DaemonConfig {
  * Running daemon instance
  */
 export interface DaemonInstance {
-  stop: () => Promise<void>;
+  shutdown: () => Promise<void>;
   service: DelegatorService;
   url: string;
 }
@@ -44,6 +44,7 @@ export async function startDelegatorDaemon(config: DaemonConfig): Promise<Daemon
     config: config.delegator,
   };
   const service = new DelegatorService(serviceOptions);
+  await service.initialize();
 
   /**
    * POST /delegate - Create a new delegation
@@ -187,7 +188,8 @@ export async function startDelegatorDaemon(config: DaemonConfig): Promise<Daemon
   });
 
   return {
-    stop: async () => {
+    shutdown: async () => {
+      await service.shutdown();
       await new Promise<void>((resolve, reject) => {
         server.close((err) => {
           if (err) reject(err);
@@ -235,12 +237,12 @@ export async function main(): Promise<void> {
 
   process.on('SIGINT', async () => {
     console.log('\n[AWCP:Daemon] Shutting down...');
-    await daemon.stop();
+    await daemon.shutdown();
     process.exit(0);
   });
 
   process.on('SIGTERM', async () => {
-    await daemon.stop();
+    await daemon.shutdown();
     process.exit(0);
   });
 

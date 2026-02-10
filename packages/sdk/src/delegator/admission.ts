@@ -12,8 +12,6 @@ export interface AdmissionConfig {
   maxFileCount?: number;
   /** Maximum single file size */
   maxSingleFileBytes?: number;
-  /** Custom check function for advanced validation */
-  customCheck?: (localDir: string) => Promise<AdmissionResult>;
 }
 
 /**
@@ -47,10 +45,6 @@ export class AdmissionController {
   }
 
   async check(localDir: string): Promise<AdmissionResult> {
-    if (this.config.customCheck) {
-      return this.config.customCheck(localDir);
-    }
-
     try {
       const stats = await this.scanWorkspace(localDir);
       

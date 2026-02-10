@@ -1,7 +1,8 @@
 export { ExecutorService, type ExecutorServiceOptions } from './service.js';
 export {
   type ExecutorConfig,
-  type PolicyConstraints,
+  type ExecutorAdmissionConfig,
+  type ExecutorDefaults,
   type ExecutorHooks,
   type TaskStartContext,
   type ResolvedExecutorConfig,

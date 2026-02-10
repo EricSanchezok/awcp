@@ -12,12 +12,16 @@ import type {
   EnvironmentDeclaration,
   ListenerAdapter,
   ListenerInfo,
+  LifecycleConfig,
 } from '@awcp/core';
 
-export interface PolicyConstraints {
+export interface ExecutorAdmissionConfig {
   maxConcurrentDelegations?: number;
   maxTtlSeconds?: number;
   allowedAccessModes?: AccessMode[];
+}
+
+export interface ExecutorDefaults {
   autoAccept?: boolean;
   resultRetentionMs?: number;
 }
@@ -43,18 +47,26 @@ export interface ExecutorConfig {
   workDir: string;
   transport: ExecutorTransportAdapter;
   sandbox?: SandboxProfile;
-  policy?: PolicyConstraints;
+  admission?: ExecutorAdmissionConfig;
+  defaults?: ExecutorDefaults;
+  lifecycle?: LifecycleConfig;
   hooks?: ExecutorHooks;
   listeners?: ListenerAdapter[];
 }
 
 export const DEFAULT_EXECUTOR_CONFIG = {
-  policy: {
+  admission: {
     maxConcurrentDelegations: 5,
     maxTtlSeconds: 3600,
     allowedAccessModes: ['ro', 'rw'] as AccessMode[],
+  },
+  defaults: {
     autoAccept: true,
     resultRetentionMs: 30 * 60 * 1000,
+  },
+  lifecycle: {
+    cleanupOnShutdown: true,
+    cleanupStaleOnStartup: true,
   },
   sandbox: {
     cwdOnly: true,
@@ -63,19 +75,13 @@ export const DEFAULT_EXECUTOR_CONFIG = {
   },
 } as const;
 
-export interface ResolvedPolicyConstraints {
-  maxConcurrentDelegations: number;
-  maxTtlSeconds: number;
-  allowedAccessModes: AccessMode[];
-  autoAccept: boolean;
-  resultRetentionMs: number;
-}
-
 export interface ResolvedExecutorConfig {
   workDir: string;
   transport: ExecutorTransportAdapter;
   sandbox: SandboxProfile;
-  policy: ResolvedPolicyConstraints;
+  admission: Required<ExecutorAdmissionConfig>;
+  defaults: Required<ExecutorDefaults>;
+  lifecycle: Required<LifecycleConfig>;
   hooks: ExecutorHooks;
   listeners: ListenerAdapter[];
 }
@@ -85,12 +91,18 @@ export function resolveExecutorConfig(config: ExecutorConfig): ResolvedExecutorC
     workDir: config.workDir,
     transport: config.transport,
     sandbox: config.sandbox ?? { ...DEFAULT_EXECUTOR_CONFIG.sandbox },
-    policy: {
-      maxConcurrentDelegations: config.policy?.maxConcurrentDelegations ?? DEFAULT_EXECUTOR_CONFIG.policy.maxConcurrentDelegations,
-      maxTtlSeconds: config.policy?.maxTtlSeconds ?? DEFAULT_EXECUTOR_CONFIG.policy.maxTtlSeconds,
-      allowedAccessModes: config.policy?.allowedAccessModes ?? [...DEFAULT_EXECUTOR_CONFIG.policy.allowedAccessModes],
-      autoAccept: config.policy?.autoAccept ?? DEFAULT_EXECUTOR_CONFIG.policy.autoAccept,
-      resultRetentionMs: config.policy?.resultRetentionMs ?? DEFAULT_EXECUTOR_CONFIG.policy.resultRetentionMs,
+    admission: {
+      maxConcurrentDelegations: config.admission?.maxConcurrentDelegations ?? DEFAULT_EXECUTOR_CONFIG.admission.maxConcurrentDelegations,
+      maxTtlSeconds: config.admission?.maxTtlSeconds ?? DEFAULT_EXECUTOR_CONFIG.admission.maxTtlSeconds,
+      allowedAccessModes: config.admission?.allowedAccessModes ?? [...DEFAULT_EXECUTOR_CONFIG.admission.allowedAccessModes],
+    },
+    defaults: {
+      autoAccept: config.defaults?.autoAccept ?? DEFAULT_EXECUTOR_CONFIG.defaults.autoAccept,
+      resultRetentionMs: config.defaults?.resultRetentionMs ?? DEFAULT_EXECUTOR_CONFIG.defaults.resultRetentionMs,
+    },
+    lifecycle: {
+      cleanupOnShutdown: config.lifecycle?.cleanupOnShutdown ?? DEFAULT_EXECUTOR_CONFIG.lifecycle.cleanupOnShutdown,
+      cleanupStaleOnStartup: config.lifecycle?.cleanupStaleOnStartup ?? DEFAULT_EXECUTOR_CONFIG.lifecycle.cleanupStaleOnStartup,
     },
     hooks: config.hooks ?? {},
     listeners: config.listeners ?? [],

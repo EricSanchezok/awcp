@@ -66,9 +66,11 @@ export const awcpConfig: ExecutorConfig = {
     allowNetwork: false,
     allowExec: false,
   },
-  policy: {
+  admission: {
     maxConcurrentDelegations: 3,
     maxTtlSeconds: 3600,
+  },
+  defaults: {
     autoAccept: false,
   },
   hooks: {

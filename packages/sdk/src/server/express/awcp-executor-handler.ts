@@ -18,13 +18,14 @@ export interface ExecutorHandlerResult {
   service: ExecutorService;
   listeners: ListenerAdapter[];
   getListenerInfos(): ListenerInfo[];
-  stop(): Promise<void>;
+  shutdown(): Promise<void>;
 }
 
 export async function executorHandler(options: ExecutorHandlerOptions): Promise<ExecutorHandlerResult> {
   const { executor, config } = options;
 
   const service = new ExecutorService({ executor, config });
+  await service.initialize();
 
   const listeners = config.listeners?.length ? config.listeners : [new HttpListener()];
 
@@ -65,7 +66,8 @@ export async function executorHandler(options: ExecutorHandlerOptions): Promise<
     service,
     listeners,
     getListenerInfos: () => [...listenerInfos],
-    stop: async () => {
+    shutdown: async () => {
+      await service.shutdown();
       for (const listener of listeners) {
         await listener.stop();
       }

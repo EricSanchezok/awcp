@@ -289,7 +289,7 @@ async function main() {
     if (result.daemon) {
       const cleanup = async () => {
         console.error('[AWCP MCP] Shutting down daemon...');
-        await result.daemon!.stop();
+        await result.daemon!.shutdown();
         process.exit(0);
       };
       process.on('SIGINT', cleanup);

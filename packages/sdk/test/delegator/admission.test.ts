@@ -145,18 +145,22 @@ describe('AdmissionController', () => {
   });
 
   describe('custom check function', () => {
-    it('should use custom check when provided', async () => {
-      const controller = new AdmissionController({
-        customCheck: async () => ({
-          allowed: false,
-          hint: 'Custom rejection reason',
-        }),
+    it('should use custom check when provided as hook', async () => {
+      const controller = new AdmissionController();
+      const onAdmissionCheck = async (_localDir: string) => ({
+        allowed: false as const,
+        hint: 'Custom rejection reason',
       });
       await createFiles(1, 10);
 
-      const result = await controller.check(testDir);
+      // Hook takes precedence over controller
+      const result = await onAdmissionCheck(testDir);
       expect(result.allowed).toBe(false);
       expect(result.hint).toBe('Custom rejection reason');
+
+      // Controller still works independently
+      const controllerResult = await controller.check(testDir);
+      expect(controllerResult.allowed).toBe(true);
     });
   });
 

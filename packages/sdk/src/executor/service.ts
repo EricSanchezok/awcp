@@ -3,6 +3,8 @@
  */
 
 import { EventEmitter } from 'node:events';
+import { readdir, rm } from 'node:fs/promises';
+import { join } from 'node:path';
 import {
   type InviteMessage,
   type StartMessage,
@@ -85,6 +87,35 @@ export class ExecutorService implements ExecutorRequestHandler {
     this.workspace = new WorkspaceManager(this.config.workDir);
   }
 
+  async initialize(): Promise<void> {
+    if (!this.config.lifecycle.cleanupStaleOnStartup) return;
+
+    const entries = await readdir(this.config.workDir).catch(() => []);
+    let cleaned = 0;
+    for (const entry of entries) {
+      const workPath = join(this.config.workDir, entry);
+      await this.transport.teardown({ delegationId: entry, workDir: workPath }).catch(() => {});
+      await rm(workPath, { recursive: true, force: true }).catch(() => {});
+      cleaned++;
+    }
+    if (cleaned > 0) {
+      console.log(`[AWCP:Executor] Cleaned ${cleaned} stale workspace(s) from previous run`);
+    }
+  }
+
+  async shutdown(): Promise<void> {
+    if (!this.config.lifecycle.cleanupOnShutdown) return;
+
+    for (const [id, delegation] of this.activeDelegations) {
+      console.log(`[AWCP:Executor] Shutting down delegation ${id}`);
+      await this.transport.teardown({ delegationId: id, workDir: delegation.workPath }).catch(() => {});
+      await this.workspace.release(delegation.workPath);
+    }
+    this.activeDelegations.clear();
+    this.pendingInvitations.clear();
+    this.completedDelegations.clear();
+  }
+
   async handleMessage(message: AwcpMessage): Promise<AwcpMessage | null> {
     switch (message.type) {
       case 'INVITE':
@@ -104,46 +135,52 @@ export class ExecutorService implements ExecutorRequestHandler {
    * Subscribe to task events via SSE
    */
   subscribeTask(delegationId: string, callback: (event: TaskEvent) => void): () => void {
-    const delegation = this.activeDelegations.get(delegationId);
-    if (!delegation) {
-      const completed = this.completedDelegations.get(delegationId);
-      const activeIds = Array.from(this.activeDelegations.keys());
-      const completedIds = Array.from(this.completedDelegations.keys());
-
-      const reason = completed
-        ? `delegation already ${completed.state} at ${completed.completedAt.toISOString()}`
-        : `delegation unknown to this executor instance`;
-
-      console.error(
-        `[AWCP:Executor] SSE subscribe rejected for ${delegationId}: ${reason}` +
-        ` (active=[${activeIds.join(',')}], completed=[${completedIds.join(',')}])`
-      );
-
-      const errorEvent: TaskErrorEvent = {
-        delegationId,
-        type: 'error',
-        timestamp: new Date().toISOString(),
-        code: 'NOT_FOUND',
-        message: `Delegation not found on executor: ${reason}`,
+    // Active: attach listener for real-time events
+    const active = this.activeDelegations.get(delegationId);
+    if (active) {
+      console.log(`[AWCP:Executor] SSE subscriber attached for ${delegationId}`);
+      const handler = (event: TaskEvent) => callback(event);
+      active.eventEmitter.on('event', handler);
+      return () => {
+        console.log(`[AWCP:Executor] SSE subscriber detached for ${delegationId}`);
+        active.eventEmitter.off('event', handler);
       };
-      callback(errorEvent);
+    }
+
+    // Completed: replay terminal event (handles SSE reconnect after task finished)
+    const completed = this.completedDelegations.get(delegationId);
+    if (completed) {
+      console.log(`[AWCP:Executor] SSE reconnect for ${delegationId}, replaying ${completed.state} event`);
+      const event: TaskEvent = completed.state === 'completed'
+        ? {
+            delegationId, type: 'done', timestamp: completed.completedAt.toISOString(),
+            summary: completed.snapshot?.summary ?? 'Task completed',
+            highlights: completed.snapshot?.highlights,
+          }
+        : {
+            delegationId, type: 'error', timestamp: completed.completedAt.toISOString(),
+            code: completed.error?.code ?? ErrorCodes.TASK_FAILED,
+            message: completed.error?.message ?? 'Task failed',
+            hint: completed.error?.hint,
+          };
+      setImmediate(() => callback(event));
       return () => {};
     }
 
-    console.log(`[AWCP:Executor] SSE subscriber attached for ${delegationId}`);
-    const handler = (event: TaskEvent) => callback(event);
-    delegation.eventEmitter.on('event', handler);
-
-    return () => {
-      console.log(`[AWCP:Executor] SSE subscriber detached for ${delegationId}`);
-      delegation.eventEmitter.off('event', handler);
+    // Unknown delegation
+    console.error(`[AWCP:Executor] SSE subscribe rejected for ${delegationId}: unknown delegation`);
+    const errorEvent: TaskErrorEvent = {
+      delegationId, type: 'error', timestamp: new Date().toISOString(),
+      code: 'NOT_FOUND', message: 'Delegation not found on executor',
     };
+    callback(errorEvent);
+    return () => {};
   }
 
   private async handleInvite(invite: InviteMessage): Promise<AcceptMessage | ErrorMessage> {
     const { delegationId } = invite;
 
-    if (this.activeDelegations.size >= this.config.policy.maxConcurrentDelegations) {
+    if (this.activeDelegations.size >= this.config.admission.maxConcurrentDelegations) {
       return this.createErrorMessage(
         delegationId,
         ErrorCodes.DECLINED,
@@ -152,7 +189,7 @@ export class ExecutorService implements ExecutorRequestHandler {
       );
     }
 
-    const maxTtl = this.config.policy.maxTtlSeconds;
+    const maxTtl = this.config.admission.maxTtlSeconds;
     if (invite.lease.ttlSeconds > maxTtl) {
       return this.createErrorMessage(
         delegationId,
@@ -162,7 +199,7 @@ export class ExecutorService implements ExecutorRequestHandler {
       );
     }
 
-    const allowedModes = this.config.policy.allowedAccessModes;
+    const allowedModes = this.config.admission.allowedAccessModes;
     if (!allowedModes.includes(invite.lease.accessMode)) {
       return this.createErrorMessage(
         delegationId,
@@ -192,7 +229,7 @@ export class ExecutorService implements ExecutorRequestHandler {
           'The agent declined this delegation request'
         );
       }
-    } else if (!this.config.policy.autoAccept) {
+    } else if (!this.config.defaults.autoAccept) {
       this.pendingInvitations.set(delegationId, {
         invite,
         receivedAt: new Date(),
@@ -518,7 +555,7 @@ export class ExecutorService implements ExecutorRequestHandler {
   private scheduleResultCleanup(delegationId: string): void {
     setTimeout(() => {
       this.completedDelegations.delete(delegationId);
-    }, this.config.policy.resultRetentionMs);
+    }, this.config.defaults.resultRetentionMs);
   }
 
   private createErrorMessage(

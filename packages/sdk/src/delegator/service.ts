@@ -80,6 +80,21 @@ export class DelegatorService implements DelegatorRequestHandler {
     this.startCleanupTimer();
   }
 
+  async initialize(): Promise<void> {
+    if (!this.config.lifecycle.cleanupStaleOnStartup) return;
+
+    const delegationsDir = path.join(this.config.baseDir, 'delegations');
+    const entries = await fs.readdir(delegationsDir).catch(() => []);
+    let cleaned = 0;
+    for (const entry of entries) {
+      await this.cleanup(entry).catch(() => {});
+      cleaned++;
+    }
+    if (cleaned > 0) {
+      console.log(`[AWCP:Delegator] Cleaned ${cleaned} stale delegation(s) from previous run`);
+    }
+  }
+
   async delegate(params: DelegateParams): Promise<string> {
     const delegationId = generateDelegationId();
 
@@ -87,7 +102,9 @@ export class DelegatorService implements DelegatorRequestHandler {
       const sourcePath = await this.validateAndNormalizePath(resource.source, delegationId);
       resource.source = sourcePath;
 
-      const admissionResult = await this.admissionController.check(sourcePath);
+      const admissionResult = this.config.hooks.onAdmissionCheck
+        ? await this.config.hooks.onAdmissionCheck(sourcePath)
+        : await this.admissionController.check(sourcePath);
       if (!admissionResult.allowed) {
         throw new WorkspaceTooLargeError(
           admissionResult.stats ?? {},
@@ -215,7 +232,9 @@ export class DelegatorService implements DelegatorRequestHandler {
     this.config.hooks.onDelegationStarted?.(updated);
 
     console.log(`[AWCP:Delegator] START sent for ${delegation.id}, subscribing to SSE...`);
-    this.subscribeToTaskEvents(delegation.id, executorUrl);
+    this.subscribeToTaskEvents(delegation.id, executorUrl).catch((error) => {
+      console.error(`[AWCP:Delegator] SSE subscription error for ${delegation.id}:`, error);
+    });
   }
 
   private async subscribeToTaskEvents(delegationId: string, executorUrl: string): Promise<void> {
@@ -561,11 +580,23 @@ export class DelegatorService implements DelegatorRequestHandler {
     };
   }
 
-  stop(): void {
+  async shutdown(): Promise<void> {
     if (this.cleanupTimer) {
       clearInterval(this.cleanupTimer);
       this.cleanupTimer = undefined;
     }
+
+    if (!this.config.lifecycle.cleanupOnShutdown) return;
+
+    for (const [id, delegation] of this.delegations) {
+      if (['completed', 'error', 'cancelled'].includes(delegation.state)) continue;
+      await this.cleanup(id).catch((error) => {
+        console.error(`[AWCP:Delegator] Cleanup failed for ${id}:`, error);
+      });
+    }
+    this.delegations.clear();
+    this.stateMachines.clear();
+    this.executorUrls.clear();
   }
 
   private shouldCleanup(delegation: Delegation): boolean {

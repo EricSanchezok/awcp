@@ -99,12 +99,14 @@ async function main() {
     res.json({ status: 'ok', synergy: synergyUrl });
   });
 
-  const shutdown = () => {
+  const gracefulShutdown = async () => {
+    console.log('\n[Agent] Shutting down...');
+    await awcp.shutdown();
     closeSynergy?.();
     process.exit(0);
   };
-  process.on('SIGINT', shutdown);
-  process.on('SIGTERM', shutdown);
+  process.on('SIGINT', gracefulShutdown);
+  process.on('SIGTERM', gracefulShutdown);
 
   app.listen(config.port, () => {
     console.log('');

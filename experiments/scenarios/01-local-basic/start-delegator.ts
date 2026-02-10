@@ -49,12 +49,12 @@ async function main() {
 
   process.on('SIGINT', async () => {
     console.log('\nShutting down Delegator Daemon...');
-    await daemon.stop();
+    await daemon.shutdown();
     process.exit(0);
   });
 
   process.on('SIGTERM', async () => {
-    await daemon.stop();
+    await daemon.shutdown();
     process.exit(0);
   });
 }

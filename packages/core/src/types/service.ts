@@ -14,6 +14,13 @@ import type {
 } from './messages.js';
 import type { SnapshotPolicy } from './snapshot.js';
 
+// ========== Shared Config ==========
+
+export interface LifecycleConfig {
+  cleanupOnShutdown?: boolean;
+  cleanupStaleOnStartup?: boolean;
+}
+
 // ========== Task Executor ==========
 
 export interface TaskExecutionContext {

@@ -56,12 +56,12 @@ async function main() {
   console.log('');
 
   process.on('SIGINT', async () => {
-    await daemon.stop();
+    await daemon.shutdown();
     process.exit(0);
   });
 
   process.on('SIGTERM', async () => {
-    await daemon.stop();
+    await daemon.shutdown();
     process.exit(0);
   });
 }

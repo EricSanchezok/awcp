@@ -2,8 +2,8 @@
  * AWCP Delegator Configuration
  */
 
-import type { Delegation, AccessMode, DelegatorTransportAdapter, SnapshotPolicy, EnvironmentSnapshot } from '@awcp/core';
-import type { AdmissionConfig } from './admission.js';
+import type { Delegation, AccessMode, DelegatorTransportAdapter, SnapshotPolicy, EnvironmentSnapshot, LifecycleConfig } from '@awcp/core';
+import type { AdmissionConfig, AdmissionResult } from './admission.js';
 
 // Re-export for convenience
 export type { AdmissionConfig } from './admission.js';
@@ -34,6 +34,7 @@ export interface DelegationDefaults {
  * Lifecycle hooks for Delegator events
  */
 export interface DelegatorHooks {
+  onAdmissionCheck?: (localDir: string) => Promise<AdmissionResult>;
   onDelegationCreated?: (delegation: Delegation) => void;
   onDelegationStarted?: (delegation: Delegation) => void;
   onDelegationCompleted?: (delegation: Delegation) => void;
@@ -56,6 +57,8 @@ export interface DelegatorConfig {
   snapshot?: SnapshotConfig;
   /** Default values for delegations */
   defaults?: DelegationDefaults;
+  /** Process lifecycle */
+  lifecycle?: LifecycleConfig;
   /** Lifecycle hooks */
   hooks?: DelegatorHooks;
 }
@@ -87,40 +90,15 @@ export const DEFAULT_DELEGATION = {
 } as const;
 
 /**
- * Resolved admission config with all fields
- */
-export interface ResolvedAdmissionConfig {
-  maxTotalBytes: number;
-  maxFileCount: number;
-  maxSingleFileBytes: number;
-}
-
-/**
- * Resolved snapshot config with all fields
- */
-export interface ResolvedSnapshotConfig {
-  mode: SnapshotPolicy;
-  retentionMs: number;
-  maxSnapshots: number;
-}
-
-/**
- * Resolved defaults with all fields
- */
-export interface ResolvedDelegationDefaults {
-  ttlSeconds: number;
-  accessMode: AccessMode;
-}
-
-/**
  * Resolved configuration with all defaults applied
  */
 export interface ResolvedDelegatorConfig {
   baseDir: string;
   transport: DelegatorTransportAdapter;
-  admission: ResolvedAdmissionConfig;
-  snapshot: ResolvedSnapshotConfig;
-  defaults: ResolvedDelegationDefaults;
+  admission: Required<AdmissionConfig>;
+  snapshot: Required<SnapshotConfig>;
+  defaults: Required<DelegationDefaults>;
+  lifecycle: Required<LifecycleConfig>;
   hooks: DelegatorHooks;
 }
 
@@ -141,6 +119,10 @@ export function resolveDelegatorConfig(config: DelegatorConfig): ResolvedDelegat
     defaults: {
       ttlSeconds: config.defaults?.ttlSeconds ?? DEFAULT_DELEGATION.ttlSeconds,
       accessMode: config.defaults?.accessMode ?? DEFAULT_DELEGATION.accessMode,
+    },
+    lifecycle: {
+      cleanupOnShutdown: config.lifecycle?.cleanupOnShutdown ?? true,
+      cleanupStaleOnStartup: config.lifecycle?.cleanupStaleOnStartup ?? true,
     },
     hooks: config.hooks ?? {},
   };

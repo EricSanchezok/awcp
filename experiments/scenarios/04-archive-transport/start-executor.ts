@@ -72,9 +72,11 @@ async function main() {
           tempDir,
         },
       }),
-      policy: {
+      admission: {
         maxConcurrentDelegations: 3,
         maxTtlSeconds: 3600,
+      },
+      defaults: {
         autoAccept: true,
       },
       hooks: {

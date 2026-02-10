@@ -75,9 +75,11 @@ export function createAwcpConfig(
       allowExec: true,
     },
 
-    policy: {
+    admission: {
       maxConcurrentDelegations: 3,
       maxTtlSeconds: 7200,
+    },
+    defaults: {
       autoAccept: false,
     },
 
