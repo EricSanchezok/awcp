@@ -34,6 +34,7 @@ import { WorkspaceManager } from './workspace-manager.js';
 
 interface PendingInvitation {
   invite: InviteMessage;
+  eventEmitter: EventEmitter;
   receivedAt: Date;
 }
 
@@ -121,7 +122,6 @@ export class ExecutorService implements ExecutorRequestHandler {
    * Subscribe to task events via SSE
    */
   subscribeTask(delegationId: string, callback: (event: TaskEvent) => void): () => void {
-    // Active: attach listener for real-time events
     const active = this.activeDelegations.get(delegationId);
     if (active) {
       console.log(`[AWCP:Executor] SSE subscriber attached for ${delegationId}`);
@@ -130,6 +130,18 @@ export class ExecutorService implements ExecutorRequestHandler {
       return () => {
         console.log(`[AWCP:Executor] SSE subscriber detached for ${delegationId}`);
         active.eventEmitter.off('event', handler);
+      };
+    }
+
+    // SSE subscribed before START — attach to pending eventEmitter
+    const pending = this.pendingInvitations.get(delegationId);
+    if (pending) {
+      console.log(`[AWCP:Executor] SSE subscriber attached for pending ${delegationId}`);
+      const handler = (event: TaskEvent) => callback(event);
+      pending.eventEmitter.on('event', handler);
+      return () => {
+        console.log(`[AWCP:Executor] SSE subscriber detached for pending ${delegationId}`);
+        pending.eventEmitter.off('event', handler);
       };
     }
 
@@ -218,6 +230,7 @@ export class ExecutorService implements ExecutorRequestHandler {
     } else if (!this.config.defaults.autoAccept) {
       this.pendingInvitations.set(delegationId, {
         invite,
+        eventEmitter: new EventEmitter(),
         receivedAt: new Date(),
       });
       return this.createErrorMessage(
@@ -243,6 +256,7 @@ export class ExecutorService implements ExecutorRequestHandler {
 
     this.pendingInvitations.set(delegationId, {
       invite,
+      eventEmitter: new EventEmitter(),
       receivedAt: new Date(),
     });
 
@@ -268,17 +282,15 @@ export class ExecutorService implements ExecutorRequestHandler {
 
     const pending = this.pendingInvitations.get(delegationId);
     if (!pending) {
-      console.warn(
-        `[AWCP:Executor] START rejected for unknown delegation ${delegationId}` +
+      throw new Error(
+        `Unknown delegation for START: ${delegationId}` +
         ` (pending=[${Array.from(this.pendingInvitations.keys()).join(',')}])`
       );
-      return;
     }
 
     const workPath = this.workspace.allocate(delegationId);
+    const eventEmitter = pending.eventEmitter;
     this.pendingInvitations.delete(delegationId);
-
-    const eventEmitter = new EventEmitter();
 
     this.activeDelegations.set(delegationId, {
       id: delegationId,
@@ -428,10 +440,21 @@ export class ExecutorService implements ExecutorRequestHandler {
 
   private async handleError(error: ErrorMessage): Promise<void> {
     const { delegationId } = error;
-    console.log(`[AWCP:Executor] Received ERROR message for ${delegationId}: ${error.code} - ${error.message}`);
 
-    await this.release(delegationId);
+    const hasPending = this.pendingInvitations.has(delegationId);
+    const hasActive = this.activeDelegations.has(delegationId);
+    if (!hasPending && !hasActive) {
+      throw new Error(
+        `Unknown delegation for ERROR: ${delegationId}` +
+        ` (pending=[${Array.from(this.pendingInvitations.keys()).join(',')}]` +
+        `, active=[${Array.from(this.activeDelegations.keys()).join(',')}])`
+      );
+    }
+
+    console.log(`[AWCP:Executor] Received ERROR for ${delegationId}: ${error.code} - ${error.message}`);
+
     this.pendingInvitations.delete(delegationId);
+    await this.release(delegationId);
 
     this.config.hooks.onError?.(
       delegationId,

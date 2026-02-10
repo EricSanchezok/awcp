@@ -38,11 +38,10 @@ describe('ExecutorClient', () => {
     vi.restoreAllMocks();
   });
 
-  // Use short retry delay for tests
-  const testClient = () => new ExecutorClient({ sseRetryDelayMs: 10 });
+  const testClient = () => new ExecutorClient(30000, 3, 10);
 
-  describe('subscribeTask', () => {
-    it('should receive events successfully', async () => {
+  describe('connectTaskEvents', () => {
+    it('should establish connection and receive events', async () => {
       const events = [
         { type: 'status', data: { status: 'running' } },
         { type: 'done', data: { summary: 'completed' } },
@@ -51,9 +50,10 @@ describe('ExecutorClient', () => {
       global.fetch = vi.fn().mockResolvedValue(createMockSSEResponse(events));
 
       const client = testClient();
+      const stream = await client.connectTaskEvents('http://localhost/awcp', 'test-id');
       const received: any[] = [];
 
-      for await (const event of client.subscribeTask('http://localhost/awcp', 'test-id')) {
+      for await (const event of stream.events) {
         received.push(event);
       }
 
@@ -78,9 +78,10 @@ describe('ExecutorClient', () => {
       });
 
       const client = testClient();
+      const stream = await client.connectTaskEvents('http://localhost/awcp', 'test-id');
       const received: any[] = [];
 
-      for await (const event of client.subscribeTask('http://localhost/awcp', 'test-id')) {
+      for await (const event of stream.events) {
         received.push(event);
       }
 
@@ -93,28 +94,31 @@ describe('ExecutorClient', () => {
 
       const client = testClient();
 
-      await expect(async () => {
-        for await (const _ of client.subscribeTask('http://localhost/awcp', 'test-id')) {
-          // consume
-        }
-      }).rejects.toThrow('Network error');
+      await expect(
+        client.connectTaskEvents('http://localhost/awcp', 'test-id')
+      ).rejects.toThrow('Network error');
 
       expect(global.fetch).toHaveBeenCalledTimes(3);
     });
 
-    it('should not retry after receiving done event', async () => {
+    it('should resolve once connected before events are consumed', async () => {
       const events = [{ type: 'done', data: { summary: 'completed' } }];
       global.fetch = vi.fn().mockResolvedValue(createMockSSEResponse(events));
 
       const client = testClient();
-      const received: any[] = [];
+      const stream = await client.connectTaskEvents('http://localhost/awcp', 'test-id');
 
-      for await (const event of client.subscribeTask('http://localhost/awcp', 'test-id')) {
+      // Connection is established — stream object is available before consuming
+      expect(stream.events).toBeDefined();
+      expect(stream.abort).toBeInstanceOf(Function);
+
+      const received: any[] = [];
+      for await (const event of stream.events) {
         received.push(event);
       }
 
-      expect(global.fetch).toHaveBeenCalledTimes(1);
       expect(received).toHaveLength(1);
+      expect(global.fetch).toHaveBeenCalledTimes(1);
     });
 
     it('should handle HTTP error response', async () => {
@@ -126,11 +130,9 @@ describe('ExecutorClient', () => {
 
       const client = testClient();
 
-      await expect(async () => {
-        for await (const _ of client.subscribeTask('http://localhost/awcp', 'test-id')) {
-          // consume
-        }
-      }).rejects.toThrow('SSE connection failed: 404 Not Found');
+      await expect(
+        client.connectTaskEvents('http://localhost/awcp', 'test-id')
+      ).rejects.toThrow('SSE connection failed: 404 Not Found');
     });
   });
 });

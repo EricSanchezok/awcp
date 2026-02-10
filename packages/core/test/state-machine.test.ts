@@ -10,7 +10,6 @@ import {
   isTerminalState,
   isValidTransition,
   createDelegation,
-  applyMessageToDelegation,
 } from '../src/state-machine/index.js';
 import type {
   InviteMessage,
@@ -281,63 +280,3 @@ describe('createDelegation', () => {
   });
 });
 
-describe('applyMessageToDelegation', () => {
-  const baseDelegation = createDelegation({
-    id: 'test-123',
-    peerUrl: 'http://executor:4001/awcp',
-    environment: { resources: [{ name: 'project', type: 'fs', source: '/path/to/project', mode: 'rw' }] },
-    task: { description: 'Test', prompt: 'Test' },
-    leaseConfig: { ttlSeconds: 3600, accessMode: 'rw' },
-  });
-
-  it('should apply ACCEPT message', () => {
-    const accept: AcceptMessage = {
-      version: PROTOCOL_VERSION,
-      type: 'ACCEPT',
-      delegationId: 'test-123',
-      executorWorkDir: { path: '/mounts/test-123' },
-      executorConstraints: { 
-        acceptedAccessMode: 'rw',
-        sandboxProfile: { cwdOnly: true } 
-      },
-    };
-
-    const updated = applyMessageToDelegation(baseDelegation, accept);
-    expect(updated.executorWorkDir).toEqual({ path: '/mounts/test-123' });
-    expect(updated.executorConstraints?.sandboxProfile?.cwdOnly).toBe(true);
-  });
-
-  it('should apply DONE message', () => {
-    const done: DoneMessage = {
-      version: PROTOCOL_VERSION,
-      type: 'DONE',
-      delegationId: 'test-123',
-      finalSummary: 'Task completed',
-      highlights: ['Fixed bug', 'Added tests'],
-    };
-
-    const updated = applyMessageToDelegation(baseDelegation, done);
-    expect(updated.result).toEqual({
-      summary: 'Task completed',
-      highlights: ['Fixed bug', 'Added tests'],
-    });
-  });
-
-  it('should apply ERROR message', () => {
-    const error: ErrorMessage = {
-      version: PROTOCOL_VERSION,
-      type: 'ERROR',
-      delegationId: 'test-123',
-      code: 'TASK_FAILED',
-      message: 'Task failed due to timeout',
-      hint: 'Try increasing the TTL',
-    };
-
-    const updated = applyMessageToDelegation(baseDelegation, error);
-    expect(updated.error).toEqual({
-      code: 'TASK_FAILED',
-      message: 'Task failed due to timeout',
-      hint: 'Try increasing the TTL',
-    });
-  });
-});

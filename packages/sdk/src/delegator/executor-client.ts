@@ -6,10 +6,9 @@ import type { AwcpMessage, AcceptMessage, ErrorMessage, TaskEvent, TaskResultRes
 
 export type InviteResponse = AcceptMessage | ErrorMessage;
 
-export interface ExecutorClientOptions {
-  timeout?: number;
-  sseMaxRetries?: number;
-  sseRetryDelayMs?: number;
+export interface TaskEventStream {
+  events: AsyncIterable<TaskEvent>;
+  abort: () => void;
 }
 
 export class ExecutorClient {
@@ -17,47 +16,57 @@ export class ExecutorClient {
   private sseMaxRetries: number;
   private sseRetryDelayMs: number;
 
-  constructor(options?: ExecutorClientOptions) {
-    this.timeout = options?.timeout ?? 30000;
-    this.sseMaxRetries = options?.sseMaxRetries ?? 3;
-    this.sseRetryDelayMs = options?.sseRetryDelayMs ?? 2000;
+  constructor(timeout: number, sseMaxRetries: number, sseRetryDelayMs: number) {
+    this.timeout = timeout;
+    this.sseMaxRetries = sseMaxRetries;
+    this.sseRetryDelayMs = sseRetryDelayMs;
   }
 
-  /**
-   * Send INVITE to Executor and get ACCEPT/ERROR response
-   */
   async sendInvite(executorUrl: string, message: AwcpMessage): Promise<InviteResponse> {
     const response = await this.send(executorUrl, message);
     const data = await response.json();
     return data as InviteResponse;
   }
 
-  /**
-   * Send START to Executor (async, no response expected)
-   */
   async sendStart(executorUrl: string, message: AwcpMessage): Promise<void> {
     await this.send(executorUrl, message);
   }
 
   /**
-   * Subscribe to task events via SSE with retry
+   * Establish SSE connection with retry. Resolves once connected.
    */
-  async *subscribeTask(executorUrl: string, delegationId: string): AsyncIterable<TaskEvent> {
+  async connectTaskEvents(executorUrl: string, delegationId: string): Promise<TaskEventStream> {
     const baseUrl = executorUrl.replace(/\/$/, '').replace(/\/awcp$/, '');
     const url = `${baseUrl}/awcp/tasks/${delegationId}/events`;
+    const controller = new AbortController();
 
     let retries = 0;
     while (retries < this.sseMaxRetries) {
       try {
         console.log(`[AWCP:Client] SSE connecting to ${url} (attempt ${retries + 1}/${this.sseMaxRetries})`);
-        yield* this.readSSE(url);
-        console.log(`[AWCP:Client] SSE stream for ${delegationId} closed normally`);
-        return;
+        const response = await fetch(url, {
+          headers: { Accept: 'text/event-stream' },
+          signal: controller.signal,
+        });
+
+        if (!response.ok) {
+          throw new Error(`SSE connection failed: ${response.status} ${response.statusText}`);
+        }
+
+        if (!response.body) {
+          throw new Error('SSE connection failed: no response body');
+        }
+
+        console.log(`[AWCP:Client] SSE connected for ${delegationId}`);
+        return {
+          events: this.parseSSEStream(response.body),
+          abort: () => controller.abort(),
+        };
       } catch (error) {
         retries++;
         const msg = error instanceof Error ? error.message : String(error);
-        if (retries >= this.sseMaxRetries) {
-          console.error(`[AWCP:Client] SSE failed after ${this.sseMaxRetries} attempts for ${delegationId}: ${msg}`);
+        if (retries >= this.sseMaxRetries || controller.signal.aborted) {
+          console.error(`[AWCP:Client] SSE failed after ${retries} attempts for ${delegationId}: ${msg}`);
           throw error;
         }
         const delayMs = this.sseRetryDelayMs * retries;
@@ -65,22 +74,12 @@ export class ExecutorClient {
         await new Promise(r => setTimeout(r, delayMs));
       }
     }
+
+    throw new Error(`SSE connection failed after ${this.sseMaxRetries} attempts`);
   }
 
-  private async *readSSE(url: string): AsyncIterable<TaskEvent> {
-    const response = await fetch(url, {
-      headers: { Accept: 'text/event-stream' },
-    });
-
-    if (!response.ok) {
-      throw new Error(`SSE connection failed: ${response.status} ${response.statusText}`);
-    }
-
-    if (!response.body) {
-      throw new Error('SSE connection failed: no response body');
-    }
-
-    const reader = response.body.getReader();
+  private async *parseSSEStream(body: ReadableStream<Uint8Array>): AsyncIterable<TaskEvent> {
+    const reader = body.getReader();
     const decoder = new TextDecoder();
     let buffer = '';
 
@@ -115,9 +114,6 @@ export class ExecutorClient {
     }
   }
 
-  /**
-   * Request Executor to cancel a delegation
-   */
   async sendCancel(executorUrl: string, delegationId: string): Promise<void> {
     const cancelUrl = executorUrl.replace(/\/$/, '') + `/cancel/${delegationId}`;
     const controller = new AbortController();
@@ -139,9 +135,6 @@ export class ExecutorClient {
     }
   }
 
-  /**
-   * Fetch task result from Executor (for offline recovery)
-   */
   async fetchResult(executorUrl: string, delegationId: string): Promise<TaskResultResponse> {
     const baseUrl = executorUrl.replace(/\/$/, '').replace(/\/awcp$/, '');
     const url = `${baseUrl}/awcp/tasks/${delegationId}/result`;
@@ -160,9 +153,6 @@ export class ExecutorClient {
     }
   }
 
-  /**
-   * Acknowledge result receipt to Executor
-   */
   async acknowledgeResult(executorUrl: string, delegationId: string): Promise<void> {
     const baseUrl = executorUrl.replace(/\/$/, '').replace(/\/awcp$/, '');
     const url = `${baseUrl}/awcp/tasks/${delegationId}/ack`;

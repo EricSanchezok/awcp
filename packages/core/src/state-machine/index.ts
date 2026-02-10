@@ -1,6 +1,5 @@
 import type {
   DelegationState,
-  AwcpMessage,
   Delegation,
   EnvironmentSpec,
   InviteMessage,
@@ -134,6 +133,8 @@ export function createDelegation(params: {
   environment: EnvironmentSpec;
   task: Delegation['task'];
   leaseConfig: Delegation['leaseConfig'];
+  snapshotPolicy?: Delegation['snapshotPolicy'];
+  exportPath?: string;
 }): Delegation {
   const now = new Date().toISOString();
   return {
@@ -143,42 +144,10 @@ export function createDelegation(params: {
     environment: params.environment,
     task: params.task,
     leaseConfig: params.leaseConfig,
+    snapshotPolicy: params.snapshotPolicy,
+    exportPath: params.exportPath,
     createdAt: now,
     updatedAt: now,
   };
 }
 
-export function applyMessageToDelegation(
-  delegation: Delegation,
-  message: AwcpMessage,
-): Delegation {
-  const updated = { ...delegation, updatedAt: new Date().toISOString() };
-
-  switch (message.type) {
-    case 'ACCEPT':
-      updated.executorWorkDir = message.executorWorkDir;
-      updated.executorConstraints = message.executorConstraints;
-      break;
-    
-    case 'START':
-      updated.activeLease = message.lease;
-      break;
-    
-    case 'DONE':
-      updated.result = {
-        summary: message.finalSummary,
-        highlights: message.highlights,
-      };
-      break;
-    
-    case 'ERROR':
-      updated.error = {
-        code: message.code,
-        message: message.message,
-        hint: message.hint,
-      };
-      break;
-  }
-
-  return updated;
-}

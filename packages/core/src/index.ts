@@ -16,7 +16,6 @@ export {
   isTerminalState,
   isValidTransition,
   createDelegation,
-  applyMessageToDelegation,
   type DelegationEvent,
   type TransitionResult,
 } from './state-machine/index.js';
