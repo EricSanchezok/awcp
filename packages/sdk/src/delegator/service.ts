@@ -91,6 +91,7 @@ export class DelegatorService implements DelegatorRequestHandler {
 
     this.snapshotManager = new SnapshotManager({
       baseDir: path.join(this.config.baseDir, 'snapshots'),
+      transport: this.transport,
     });
 
     const { requestTimeout, sseMaxRetries, sseRetryDelayMs } = this.config.delegation.connection;
@@ -121,6 +122,22 @@ export class DelegatorService implements DelegatorRequestHandler {
     for (const delegation of persistedDelegations) {
       this.delegations.set(delegation.id, delegation);
       this.stateMachines.set(delegation.id, new DelegationStateMachine(delegation.state));
+    }
+
+    for (const delegation of persistedDelegations) {
+      if (isTerminalState(delegation.state)) continue;
+
+      console.log(`[AWCP:Delegator] Auto-resuming delegation ${delegation.id} (state=${delegation.state})`);
+      try {
+        await this.delegate({
+          existingId: delegation.id,
+          executorUrl: delegation.peerUrl,
+          environment: delegation.environment,
+          task: delegation.task,
+        });
+      } catch (error) {
+        console.error(`[AWCP:Delegator] Failed to resume ${delegation.id}:`, error instanceof Error ? error.message : error);
+      }
     }
   }
 
@@ -155,8 +172,6 @@ export class DelegatorService implements DelegatorRequestHandler {
       }
 
       await this.transport.release(delegationId).catch(() => {});
-      await this.environmentManager.release(delegationId);
-      await this.snapshotManager.cleanupDelegation(delegationId);
 
       this.stateMachines.set(delegationId, new DelegationStateMachine());
     }
@@ -181,19 +196,6 @@ export class DelegatorService implements DelegatorRequestHandler {
         const delegation = this.delegations.get(delegationId)!;
         delegation.state = 'created';
         delegation.exportPath = envRoot;
-        delegation.leaseConfig = { ttlSeconds, accessMode };
-        delegation.retentionMs = retentionMs;
-        delegation.executorRetentionMs = undefined;
-        delegation.snapshotPolicy = {
-          mode: snapshotMode,
-          maxSnapshots: this.config.delegation.snapshot.maxSnapshots,
-        };
-        delegation.activeLease = undefined;
-        delegation.snapshots = undefined;
-        delegation.appliedSnapshotId = undefined;
-        delegation.result = undefined;
-        delegation.error = undefined;
-        delegation.updatedAt = new Date().toISOString();
       } else {
         const delegation = createDelegation({
           id: delegationId,
@@ -460,76 +462,15 @@ export class DelegatorService implements DelegatorRequestHandler {
   }
 
   private async handleSnapshotEvent(delegationId: string, event: TaskSnapshotEvent): Promise<void> {
-    if (this.transport.capabilities.liveSync) return;
-
     const delegation = this.delegations.get(delegationId);
     if (!delegation) return;
 
-    const policy = delegation.snapshotPolicy ?? {
-      mode: this.config.delegation.snapshot.mode,
-      maxSnapshots: this.config.delegation.snapshot.maxSnapshots,
-    };
+    const snapshot = await this.snapshotManager.receive(delegation, event);
+    if (!snapshot) return;
 
-    if (!delegation.snapshots) {
-      delegation.snapshots = [];
-    }
-
-    const snapshot: EnvironmentSnapshot = {
-      id: event.snapshotId,
-      delegationId,
-      summary: event.summary,
-      highlights: event.highlights,
-      status: 'pending',
-      metadata: event.metadata,
-      recommended: event.recommended,
-      createdAt: new Date().toISOString(),
-    };
-
-    if (policy.mode === 'auto') {
-      await this.applySnapshotToWorkspace(delegationId, event.snapshotBase64);
-      snapshot.status = 'applied';
-      snapshot.appliedAt = new Date().toISOString();
-      delegation.appliedSnapshotId = event.snapshotId;
-    } else if (policy.mode === 'staged') {
-      const localPath = await this.snapshotManager.save(
-        delegationId,
-        event.snapshotId,
-        event.snapshotBase64,
-        { summary: event.summary, highlights: event.highlights, ...event.metadata }
-      );
-      snapshot.localPath = localPath;
-    } else {
-      snapshot.status = 'discarded';
-    }
-
-    delegation.snapshots.push(snapshot);
-    delegation.updatedAt = new Date().toISOString();
     await this.persistDelegation(delegationId);
 
     this.config.hooks.onSnapshotReceived?.(delegation, snapshot);
-  }
-
-  private async applySnapshotToWorkspace(delegationId: string, snapshotData: string): Promise<void> {
-    const delegation = this.delegations.get(delegationId);
-    if (!delegation) return;
-
-    if (!delegation.exportPath) return;
-
-    const rwResources = delegation.environment.resources.filter(r => r.mode === 'rw');
-    if (rwResources.length === 0) return;
-
-    try {
-      if (this.transport.applySnapshot) {
-        await this.transport.applySnapshot({
-          delegationId,
-          snapshotData,
-          resources: rwResources.map(r => ({ name: r.name, source: r.source, mode: r.mode })),
-        });
-        console.log(`[AWCP:Delegator] Applied snapshot for ${delegationId}`);
-      }
-    } catch (error) {
-      console.error(`[AWCP:Delegator] Failed to apply snapshot for ${delegationId}:`, error);
-    }
   }
 
   async cancel(delegationId: string): Promise<void> {
@@ -559,19 +500,7 @@ export class DelegatorService implements DelegatorRequestHandler {
     const delegation = this.delegations.get(delegationId);
     if (!delegation) throw new Error(`Unknown delegation: ${delegationId}`);
 
-    const snapshot = delegation.snapshots?.find(s => s.id === snapshotId);
-    if (!snapshot) throw new Error(`Snapshot not found: ${snapshotId}`);
-    if (snapshot.status === 'applied') throw new Error(`Snapshot already applied: ${snapshotId}`);
-
-    const snapshotBuffer = await this.snapshotManager.load(delegationId, snapshotId);
-    const snapshotBase64 = snapshotBuffer.toString('base64');
-
-    await this.applySnapshotToWorkspace(delegationId, snapshotBase64);
-
-    snapshot.status = 'applied';
-    snapshot.appliedAt = new Date().toISOString();
-    delegation.appliedSnapshotId = snapshotId;
-    delegation.updatedAt = new Date().toISOString();
+    const snapshot = await this.snapshotManager.apply(delegation, snapshotId);
     await this.persistDelegation(delegationId);
 
     this.config.hooks.onSnapshotApplied?.(delegation, snapshot);
@@ -581,14 +510,7 @@ export class DelegatorService implements DelegatorRequestHandler {
     const delegation = this.delegations.get(delegationId);
     if (!delegation) throw new Error(`Unknown delegation: ${delegationId}`);
 
-    const snapshot = delegation.snapshots?.find(s => s.id === snapshotId);
-    if (!snapshot) throw new Error(`Snapshot not found: ${snapshotId}`);
-
-    await this.snapshotManager.delete(delegationId, snapshotId);
-
-    snapshot.status = 'discarded';
-    snapshot.localPath = undefined;
-    delegation.updatedAt = new Date().toISOString();
+    await this.snapshotManager.discard(delegation, snapshotId);
     await this.persistDelegation(delegationId);
   }
 
