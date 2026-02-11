@@ -1,9 +1,0 @@
-# Runtime directories
-.openclaw/
-logs/
-workdir/
-temp/
-exports/
-
-# Keep workspace template
-!workspace/

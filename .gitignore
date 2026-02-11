@@ -66,5 +66,11 @@ id_ed25519*
 # Private documents
 ref/
 
+# Non-public directories (kept local only)
+docs/paper/
+examples/
+experiments/
+papers/
+
 # Skill build artifacts
 skill/*.zip
