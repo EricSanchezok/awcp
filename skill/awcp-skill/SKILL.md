@@ -1,62 +1,118 @@
 ---
 name: awcp-skill
 description: |
-  Agent Workspace Collaboration Protocol - delegate work to remote AI executors.
+  Agent Workspace Collaboration Protocol - discover and delegate work to remote AI executors.
   
   Triggers:
-  - Need to delegate coding tasks to a remote executor
+  - User asks what remote agents/executors are available, or wants to discover peers
+  - Need to delegate tasks to a remote executor (coding, compliance, vision, etc.)
   - Working with awcp, delegate, executor, workspace delegation
   - Managing delegation results and snapshots
-  - Choosing between auto/staged/discard snapshot modes
+  - User asks to send files/workspace to another AI for processing
+  - User wants to stamp, sign, audit, review documents remotely
+  - User asks about remote capabilities, remote AI, or available services
   
-  Use this skill when you need to send work to a remote AI agent and manage the results.
+  IMPORTANT: When the user asks about available remote agents, remote services, or what executors exist, ALWAYS use this skill's peers.ts script — do NOT use the built-in agents_list tool, which only shows local agents. This skill discovers external AWCP executors.
+metadata:
+  {
+    "openclaw": {
+      "requires": { "bins": ["bun"] },
+      "install": [
+        {
+          "id": "brew",
+          "kind": "brew",
+          "formula": "oven-sh/bun/bun",
+          "bins": ["bun"],
+          "label": "Install Bun runtime (brew)"
+        }
+      ]
+    }
+  }
 ---
 
 # AWCP - Agent Workspace Collaboration Protocol
 
 Delegate workspace and tasks to remote AI executors, then retrieve and apply results.
 
-## Quick Decision Guide
+## Quick Start Workflow
 
-### When to Delegate
+**Step 1**: Discover available executors:
+```bash
+bun run {baseDir}/scripts/peers.ts
+```
+This reads executor URLs from `~/.awcp/peers.json` and shows each executor's name, skills, and AWCP URL.
+
+**Step 2**: Delegate a workspace:
+```bash
+bun run {baseDir}/scripts/delegate.ts \
+  --workspace /path/to/files \
+  --peer-url <awcp_url_from_step_1> \
+  --description "Brief task description" \
+  --prompt "Detailed instructions" \
+  --wait
+```
+
+**Step 3**: Check results (if not using `--wait`):
+```bash
+bun run {baseDir}/scripts/status.ts --id <delegation_id> --wait
+```
+
+## When to Delegate
 
 Delegate when:
-- Task requires specialized capabilities (e.g., browser automation, GPU compute)
+- Task requires specialized capabilities (e.g., vision, compliance audit, GPU compute)
 - Task can run independently without constant interaction
 - You want parallel execution while continuing other work
+- User asks you to send files to another agent for processing
 
 Don't delegate when:
 - Task requires real-time user interaction
 - Task is trivial (< 1 minute of work)
-- Sensitive data that shouldn't leave local machine
 
-### Snapshot Mode Selection
+## Peer Discovery
 
-| Mode | Use When | Behavior |
-|------|----------|----------|
-| `auto` | Trust executor, want immediate results | Apply changes automatically |
-| `staged` | Need to review before applying | Store snapshots, apply manually |
-| `discard` | Only want logs/status, not file changes | Discard all snapshots |
+Before delegating, discover available executors and their capabilities:
 
-**Default**: `auto` for most cases. Use `staged` for production code or security-sensitive changes.
+```bash
+bun run {baseDir}/scripts/peers.ts
+```
+
+Output shows each executor's name, AWCP URL, and skills. Use the AWCP URL as `--peer-url` when delegating.
+
+**Peer configuration**: `~/.awcp/peers.json`
+```json
+{
+  "peers": [
+    "http://executor-host:10300/awcp"
+  ]
+}
+```
 
 ## Scripts
 
 All scripts auto-manage the Delegator daemon (start if not running, reuse if running).
 
+### peers.ts - Discover Executors
+
+```bash
+bun run {baseDir}/scripts/peers.ts
+bun run {baseDir}/scripts/peers.ts --json
+```
+
 ### delegate.ts - Create Delegation
 
 ```bash
-bun run scripts/delegate.ts \
+bun run {baseDir}/scripts/delegate.ts \
   --workspace /path/to/project \
-  --peer-url http://executor.example.com/awcp \
+  --peer-url http://executor:10300/awcp \
   --description "Short task description" \
-  --prompt "Detailed instructions for the executor"
+  --prompt "Detailed instructions for the executor" \
+  --wait
 ```
 
 **Parameters:**
 - `--workspace` (required): Local directory to delegate
-- `--peer-url` (required): Executor's AWCP endpoint URL
+- `--peer-url` (required): Executor's AWCP endpoint URL (from `peers.ts`)
 - `--description` (required): Brief task description
 - `--prompt` (required): Detailed instructions
 - `--mode`: Access mode (`ro` | `rw`, default: `rw`)
@@ -85,7 +141,7 @@ With `--wait`:
 ### status.ts - Query Delegation Status
 
 ```bash
-bun run scripts/status.ts --id dlg_abc123
+bun run {baseDir}/scripts/status.ts --id dlg_abc123 --wait
 ```
 
 **Parameters:**
@@ -93,111 +149,77 @@ bun run scripts/status.ts --id dlg_abc123
 - `--wait`: Wait for terminal state
 - `--timeout`: Wait timeout in ms (default: 300000)
 
-**Output (JSON):**
-```json
-{
-  "id": "dlg_abc123",
-  "state": "completed",
-  "result": { "summary": "Refactored auth module", "filesChanged": 3 },
-  "snapshots": [{ "id": "snap_1", "status": "applied" }]
-}
-```
-
 ### snapshots.ts - List Snapshots
 
 ```bash
-bun run scripts/snapshots.ts --id dlg_abc123
-```
-
-**Output (JSON):**
-```json
-{
-  "delegationId": "dlg_abc123",
-  "snapshots": [
-    { "id": "snap_1", "status": "pending", "summary": "Initial changes" },
-    { "id": "snap_2", "status": "pending", "summary": "Additional fixes" }
-  ]
-}
+bun run {baseDir}/scripts/snapshots.ts --id dlg_abc123
 ```
 
 ### apply.ts - Apply Snapshot
 
 ```bash
-bun run scripts/apply.ts --id dlg_abc123 --snapshot snap_1
+bun run {baseDir}/scripts/apply.ts --id dlg_abc123 --snapshot snap_1
 ```
-
-**Parameters:**
-- `--id` (required): Delegation ID
-- `--snapshot` (required): Snapshot ID to apply
-
-Applies the snapshot's changes to your local workspace.
 
 ### discard.ts - Discard Snapshot
 
 ```bash
-bun run scripts/discard.ts --id dlg_abc123 --snapshot snap_1
+bun run {baseDir}/scripts/discard.ts --id dlg_abc123 --snapshot snap_1
 ```
 
-Discards a snapshot without applying its changes.
+## Snapshot Modes
+
+| Mode | Use When | Behavior |
+|------|----------|----------|
+| `auto` | Trust executor, want immediate results | Apply changes automatically |
+| `staged` | Need to review before applying | Store snapshots, apply manually |
+| `discard` | Only want logs/status, not file changes | Discard all snapshots |
+
+**Default**: `auto` for most cases. Use `staged` for production code or security-sensitive changes.
 
 ## Common Workflows
+
+### Compliance / Stamping Workflow
+
+```bash
+# 1. Discover the compliance executor
+bun run {baseDir}/scripts/peers.ts
+
+# 2. Delegate workspace for audit
+bun run {baseDir}/scripts/delegate.ts \
+  --workspace /path/to/legal_workspace \
+  --peer-url http://executor:10300/awcp \
+  --description "Contract compliance audit and stamping" \
+  --prompt "Please audit the contract documents and apply the official stamp if compliant." \
+  --wait
+
+# 3. If rejected, add missing files to workspace and re-delegate
+```
 
 ### Basic Delegation (Auto Mode)
 
 ```bash
-# Delegate and wait for completion
-result=$(bun run scripts/delegate.ts \
+result=$(bun run {baseDir}/scripts/delegate.ts \
   --workspace ./my-project \
-  --peer-url http://executor:4001/awcp \
+  --peer-url http://executor:10300/awcp \
   --description "Fix authentication bug" \
   --prompt "The login fails when password contains special characters. Fix it." \
   --wait)
-
-echo $result
-# Changes already applied to ./my-project
-```
-
-### Staged Review Workflow
-
-```bash
-# 1. Delegate with staged mode
-bun run scripts/delegate.ts \
-  --workspace ./my-project \
-  --peer-url http://executor:4001/awcp \
-  --description "Refactor database layer" \
-  --prompt "Split the monolithic db.ts into separate modules" \
-  --snapshot staged
-
-# 2. Wait for completion
-bun run scripts/status.ts --id dlg_abc123 --wait
-
-# 3. Review available snapshots
-bun run scripts/snapshots.ts --id dlg_abc123
-
-# 4. Apply the one you want
-bun run scripts/apply.ts --id dlg_abc123 --snapshot snap_1
-
-# 5. Discard others
-bun run scripts/discard.ts --id dlg_abc123 --snapshot snap_2
 ```
 
 ### Background Delegation
 
 ```bash
-# Start delegation without waiting
-delegation=$(bun run scripts/delegate.ts \
+# Start without waiting
+delegation=$(bun run {baseDir}/scripts/delegate.ts \
   --workspace ./project \
-  --peer-url http://executor:4001/awcp \
+  --peer-url http://executor:10300/awcp \
   --description "Generate tests" \
   --prompt "Add unit tests for all utils")
 
-# Extract delegation ID
-id=$(echo $delegation | jq -r '.delegationId')
-
-# ... do other work ...
-
 # Check status later
-bun run scripts/status.ts --id $id --wait
+id=$(echo $delegation | jq -r '.delegationId')
+bun run {baseDir}/scripts/status.ts --id $id --wait
 ```
 
 ## Error Handling
@@ -225,6 +247,7 @@ Common errors:
 |----------|-------------|---------|
 | `AWCP_DAEMON_PORT` | Daemon HTTP port | 3100 |
 | `AWCP_HOME` | AWCP data directory | ~/.awcp |
+| `AWCP_PEERS_CONFIG` | Path to peers.json | ~/.awcp/peers.json |
 
 ## Protocol Details
 

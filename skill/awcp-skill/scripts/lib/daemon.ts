@@ -16,7 +16,7 @@ const DEFAULT_PORT = 3100;
 const DEFAULT_TIMEOUT = 15000;
 
 // Singleton to track in-process daemon
-let activeDaemon: { url: string; stop: () => Promise<void> } | null = null;
+let activeDaemon: { url: string; shutdown: () => Promise<void> } | null = null;
 
 export interface DaemonConfig {
   port?: number;
@@ -59,16 +59,14 @@ async function ensureDirectories(): Promise<{ awcpDir: string; envDir: string; t
 /**
  * Start daemon in-process using @awcp/sdk
  */
-async function startDaemonInProcess(port: number): Promise<{ url: string; stop: () => Promise<void> }> {
+async function startDaemonInProcess(port: number): Promise<{ url: string; shutdown: () => Promise<void> }> {
   const { envDir, tempDir } = await ensureDirectories();
   
   // Dynamic imports to avoid hard dependency
   const { startDelegatorDaemon } = await import('@awcp/sdk/delegator/daemon');
-  const { ArchiveTransport } = await import('@awcp/transport-archive');
+  const { ArchiveDelegatorTransport } = await import('@awcp/transport-archive');
 
-  const transport = new ArchiveTransport({
-    delegator: { tempDir },
-  });
+  const transport = new ArchiveDelegatorTransport({ tempDir });
 
   const daemon = await startDelegatorDaemon({
     port,

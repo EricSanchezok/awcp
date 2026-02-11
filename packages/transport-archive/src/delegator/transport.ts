@@ -38,9 +38,14 @@ export class ArchiveDelegatorTransport implements DelegatorTransportAdapter {
   async prepare(params: TransportPrepareParams): Promise<TransportHandle> {
     const { delegationId, exportPath } = params;
     const archivePath = path.join(this.tempDir, `${delegationId}.zip`);
+    const resolvedExportPath = path.join(this.tempDir, `${delegationId}-export`);
 
     try {
-      await createArchive(exportPath, archivePath);
+      await fs.promises.cp(exportPath, resolvedExportPath, {
+        recursive: true,
+        dereference: true,
+      });
+      await createArchive(resolvedExportPath, archivePath);
       const buffer = await fs.promises.readFile(archivePath);
       const checksum = crypto.createHash('sha256').update(buffer).digest('hex');
 
@@ -52,6 +57,7 @@ export class ArchiveDelegatorTransport implements DelegatorTransportAdapter {
       return handle;
     } finally {
       await fs.promises.unlink(archivePath).catch(() => {});
+      await fs.promises.rm(resolvedExportPath, { recursive: true, force: true }).catch(() => {});
     }
   }
 
