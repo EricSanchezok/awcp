@@ -3,22 +3,21 @@
  */
 
 import type { ExecutorConfig, TaskStartContext } from '@awcp/sdk';
-import { SshfsTransport } from '@awcp/transport-sshfs';
+import { SshfsExecutorTransport } from '@awcp/transport-sshfs';
 
 export const awcpConfig: ExecutorConfig = {
   workDir: '/tmp/awcp/mounts',
-  transport: new SshfsTransport(),
-  sandbox: {
-    cwdOnly: true,
-    allowNetwork: true,
-    allowExec: true,
-  },
+  transport: new SshfsExecutorTransport(),
   admission: {
     maxConcurrentDelegations: 3,
     maxTtlSeconds: 3600,
   },
-  defaults: {
-    autoAccept: true,
+  assignment: {
+    sandbox: {
+      cwdOnly: true,
+      allowNetwork: true,
+      allowExec: true,
+    },
   },
   hooks: {
     onTaskStart: (ctx: TaskStartContext) => {

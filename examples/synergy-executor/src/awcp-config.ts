@@ -1,33 +1,30 @@
 /**
  * AWCP Configuration for Synergy Executor
- * 
+ *
  * Uses Archive transport by default (HTTP-based, no SSHFS required).
  */
 
 import type { ExecutorConfig, TaskStartContext } from '@awcp/sdk';
-import type { InviteMessage, TransportAdapter } from '@awcp/core';
-import { SshfsTransport } from '@awcp/transport-sshfs';
-import { ArchiveTransport } from '@awcp/transport-archive';
+import type { ExecutorTransportAdapter, InviteMessage } from '@awcp/core';
+import { SshfsExecutorTransport } from '@awcp/transport-sshfs';
+import { ArchiveExecutorTransport } from '@awcp/transport-archive';
 import { loadConfig } from './config.js';
 
 const config = loadConfig();
 
-// Transport selection: 'archive' (default) or 'sshfs'
 const transportType = process.env.AWCP_TRANSPORT || 'archive';
 
-function createTransport(): TransportAdapter {
+function createTransport(): ExecutorTransportAdapter {
   switch (transportType) {
     case 'sshfs':
       console.log('[AWCP] Using SSHFS transport');
-      return new SshfsTransport();
+      return new SshfsExecutorTransport();
 
     case 'archive':
     default:
       console.log('[AWCP] Using Archive transport (HTTP-based)');
-      return new ArchiveTransport({
-        executor: {
-          tempDir: `${config.scenarioDir}/temp`,
-        },
+      return new ArchiveExecutorTransport({
+        tempDir: `${config.scenarioDir}/temp`,
       });
   }
 }
@@ -35,24 +32,22 @@ function createTransport(): TransportAdapter {
 export const awcpConfig: ExecutorConfig = {
   workDir: `${config.scenarioDir}/workdir`,
   transport: createTransport(),
-  sandbox: {
-    cwdOnly: true,
-    allowNetwork: true,
-    allowExec: true,
-  },
   admission: {
     maxConcurrentDelegations: 3,
     maxTtlSeconds: 7200,
   },
-  defaults: {
-    autoAccept: false,
+  assignment: {
+    sandbox: {
+      cwdOnly: true,
+      allowNetwork: true,
+      allowExec: true,
+    },
   },
   hooks: {
-    onInvite: async (invite: InviteMessage) => {
+    onAdmissionCheck: async (invite: InviteMessage) => {
       console.log(`[AWCP] Received INVITE: ${invite.delegationId}`);
       console.log(`[AWCP] Task: ${invite.task.description}`);
       console.log(`[AWCP] Accepting invitation`);
-      return true;
     },
 
     onTaskStart: (ctx: TaskStartContext) => {

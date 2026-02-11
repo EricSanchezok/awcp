@@ -1,24 +1,19 @@
+/**
+ * Git Transport Configuration Types
+ */
+
 import type { GitCredential } from '@awcp/core';
 
-export type { GitWorkDirInfo, GitCredential } from '@awcp/core';
-
-export interface GitDelegatorConfig {
+export interface GitDelegatorTransportConfig {
   remoteUrl: string;
   auth: GitCredential;
   tempDir?: string;
-  branchPrefix?: string;
-  cleanupRemoteBranch?: boolean;
+  deleteRemoteBranch?: boolean;
 }
 
-export interface GitExecutorConfig {
+export interface GitExecutorTransportConfig {
   tempDir?: string;
-  gitPath?: string;
-  cloneTimeout?: number;
-}
-
-export interface GitTransportConfig {
-  delegator?: GitDelegatorConfig;
-  executor?: GitExecutorConfig;
+  branchPrefix?: string;
 }
 
 export interface GitSnapshotInfo {

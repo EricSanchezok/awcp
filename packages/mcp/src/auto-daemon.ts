@@ -9,9 +9,9 @@ import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 import type { DelegatorConfig } from '@awcp/sdk';
-import type { AccessMode, SnapshotPolicy, GitCredential } from '@awcp/core';
+import type { AccessMode, SnapshotMode, GitCredential } from '@awcp/core';
 import { startDelegatorDaemon, type DaemonInstance } from '@awcp/sdk/delegator/daemon';
-import { ArchiveTransport } from '@awcp/transport-archive';
+import { ArchiveDelegatorTransport } from '@awcp/transport-archive';
 
 export interface AutoDaemonOptions {
   // === Daemon ===
@@ -30,7 +30,7 @@ export interface AutoDaemonOptions {
   maxSingleFileBytes?: number;
 
   // === Snapshot ===
-  snapshotMode?: SnapshotPolicy;
+  snapshotMode?: SnapshotMode;
 
   // === Defaults ===
   defaultTtl?: number;
@@ -55,8 +55,7 @@ export interface AutoDaemonOptions {
   gitAuthType?: 'token' | 'ssh' | 'none';
   gitToken?: string;
   gitSshKeyPath?: string;
-  gitBranchPrefix?: string;
-  gitCleanupRemoteBranch?: boolean;
+  gitDeleteRemoteBranch?: boolean;
 }
 
 function getAwcpDir(): string {
@@ -105,60 +104,49 @@ async function createDefaultConfig(options: AutoDaemonOptions): Promise<Delegato
 
   let transport;
   if (options.transport === 'sshfs') {
-    const { SshfsTransport } = await import('@awcp/transport-sshfs');
+    const { SshfsDelegatorTransport } = await import('@awcp/transport-sshfs');
 
     if (!options.sshCaKey) {
       throw new Error('SSHFS transport requires --ssh-ca-key option');
     }
 
-    transport = new SshfsTransport({
-      delegator: {
-        caKeyPath: options.sshCaKey,
-        keyDir: options.sshKeyDir || join(awcpDir, 'keys'),
-        host: options.sshHost || 'localhost',
-        port: options.sshPort || 22,
-        user: options.sshUser || process.env.USER,
-      },
+    transport = new SshfsDelegatorTransport({
+      caKeyPath: options.sshCaKey,
+      keyDir: options.sshKeyDir || join(awcpDir, 'keys'),
+      host: options.sshHost || 'localhost',
+      port: options.sshPort || 22,
+      user: options.sshUser || process.env.USER,
     });
   } else if (options.transport === 'storage') {
-    const { StorageTransport } = await import('@awcp/transport-storage');
+    const { StorageDelegatorTransport } = await import('@awcp/transport-storage');
 
     if (!options.storageEndpoint) {
       throw new Error('Storage transport requires --storage-endpoint option');
     }
 
-    transport = new StorageTransport({
-      delegator: {
-        provider: {
-          type: 'local',
-          localDir: options.storageLocalDir || join(awcpDir, 'storage'),
-          endpoint: options.storageEndpoint,
-        },
-        tempDir,
+    transport = new StorageDelegatorTransport({
+      provider: {
+        type: 'local',
+        localDir: options.storageLocalDir || join(awcpDir, 'storage'),
+        endpoint: options.storageEndpoint,
       },
+      tempDir,
     });
   } else if (options.transport === 'git') {
-    const { GitTransport } = await import('@awcp/transport-git');
+    const { GitDelegatorTransport } = await import('@awcp/transport-git');
 
     if (!options.gitRemoteUrl) {
       throw new Error('Git transport requires --git-remote-url option');
     }
 
-    transport = new GitTransport({
-      delegator: {
-        remoteUrl: options.gitRemoteUrl,
-        auth: buildGitAuth(options),
-        tempDir,
-        branchPrefix: options.gitBranchPrefix,
-        cleanupRemoteBranch: options.gitCleanupRemoteBranch,
-      },
+    transport = new GitDelegatorTransport({
+      remoteUrl: options.gitRemoteUrl,
+      auth: buildGitAuth(options),
+      tempDir,
+      deleteRemoteBranch: options.gitDeleteRemoteBranch,
     });
   } else {
-    transport = new ArchiveTransport({
-      delegator: {
-        tempDir,
-      },
-    });
+    transport = new ArchiveDelegatorTransport({ tempDir });
   }
 
   return {
@@ -169,12 +157,14 @@ async function createDefaultConfig(options: AutoDaemonOptions): Promise<Delegato
       maxFileCount: options.maxFileCount,
       maxSingleFileBytes: options.maxSingleFileBytes,
     },
-    snapshot: {
-      mode: options.snapshotMode,
-    },
-    defaults: {
-      ttlSeconds: options.defaultTtl,
-      accessMode: options.defaultAccessMode,
+    delegation: {
+      lease: {
+        ttlSeconds: options.defaultTtl,
+        accessMode: options.defaultAccessMode,
+      },
+      snapshot: {
+        mode: options.snapshotMode,
+      },
     },
   };
 }

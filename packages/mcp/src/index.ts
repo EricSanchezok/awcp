@@ -17,6 +17,7 @@
 
 export { createAwcpMcpServer, type AwcpMcpServerOptions } from './server.js';
 export { DelegatorDaemonClient } from '@awcp/sdk/delegator/client';
+export type { DelegateRequest, DelegateResponse, ListDelegationsResponse } from '@awcp/sdk/delegator/client';
 
 // Tool schemas
 export { delegateSchema, type DelegateParams } from './tools/delegate.js';

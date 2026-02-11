@@ -8,7 +8,7 @@
  */
 
 import { startDelegatorDaemon } from '@awcp/sdk';
-import { SshfsTransport } from '@awcp/transport-sshfs';
+import { SshfsDelegatorTransport } from '@awcp/transport-sshfs';
 import { resolve, join } from 'node:path';
 import { homedir } from 'node:os';
 
@@ -34,13 +34,11 @@ async function main() {
     port: PORT,
     delegator: {
       baseDir: exportsDir,
-      transport: new SshfsTransport({
-        delegator: {
-          host: 'localhost',
-          user: process.env.USER || 'user',
-          port: 22,
-          caKeyPath: join(homedir(), '.awcp', 'ca'),
-        },
+      transport: new SshfsDelegatorTransport({
+        host: 'localhost',
+        user: process.env.USER || 'user',
+        port: 22,
+        caKeyPath: join(homedir(), '.awcp', 'ca'),
       }),
       admission: {
         maxTotalBytes: 1024,        // 1KB - very strict!

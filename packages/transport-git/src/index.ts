@@ -5,11 +5,7 @@
  * Supports GitHub, GitLab, Gitea, and self-hosted Git servers.
  */
 
-export { GitTransport } from './git-transport.js';
+export { GitDelegatorTransport } from './delegator/transport.js';
+export { GitExecutorTransport } from './executor/transport.js';
 
-export type {
-  GitTransportConfig,
-  GitDelegatorConfig,
-  GitExecutorConfig,
-  GitSnapshotInfo,
-} from './types.js';
+export type { GitDelegatorTransportConfig, GitExecutorTransportConfig } from './types.js';

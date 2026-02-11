@@ -3,40 +3,33 @@
  */
 
 import path from 'node:path';
-import type { ExecutorConfig, TaskStartContext } from '@awcp/sdk';
+import type { ExecutorConfig, TaskStartContext, ListenerAdapter } from '@awcp/sdk';
 import { resolveWorkDir, HttpListener, WebSocketTunnelListener } from '@awcp/sdk';
-import type { InviteMessage, TransportAdapter, ListenerAdapter } from '@awcp/core';
-import { ArchiveTransport } from '@awcp/transport-archive';
-import { SshfsTransport } from '@awcp/transport-sshfs';
-import { StorageTransport } from '@awcp/transport-storage';
-import { GitTransport } from '@awcp/transport-git';
+import type { InviteMessage, ExecutorTransportAdapter } from '@awcp/core';
+import { ArchiveExecutorTransport } from '@awcp/transport-archive';
+import { SshfsExecutorTransport } from '@awcp/transport-sshfs';
+import { StorageExecutorTransport } from '@awcp/transport-storage';
+import { GitExecutorTransport } from '@awcp/transport-git';
 import type { AppConfig } from './app-config.js';
 import type { OpenClawExecutor } from './openclaw-executor.js';
 import type { OpenClawGatewayManager } from './gateway-manager.js';
 
-function createTransport(tempDir: string): TransportAdapter {
+function createTransport(tempDir: string): ExecutorTransportAdapter {
   const type = process.env.AWCP_TRANSPORT || 'archive';
   if (type === 'sshfs') {
     console.log('[AWCP] Using SSHFS transport');
-    return new SshfsTransport();
+    return new SshfsExecutorTransport();
   }
   if (type === 'storage') {
     console.log('[AWCP] Using Storage transport');
-    return new StorageTransport({ executor: { tempDir } });
+    return new StorageExecutorTransport({ tempDir });
   }
   if (type === 'git') {
     console.log('[AWCP] Using Git transport');
-    const remoteUrl = process.env.AWCP_GIT_REMOTE_URL;
-    if (!remoteUrl) {
-      throw new Error('AWCP_GIT_REMOTE_URL is required for git transport');
-    }
-    return new GitTransport({
-      delegator: { remoteUrl, auth: { type: 'none' }, tempDir },
-      executor: { tempDir },
-    });
+    return new GitExecutorTransport({ tempDir });
   }
   console.log('[AWCP] Using Archive transport');
-  return new ArchiveTransport({ executor: { tempDir } });
+  return new ArchiveExecutorTransport({ tempDir });
 }
 
 function createListeners(): ListenerAdapter[] {
@@ -69,27 +62,24 @@ export function createAwcpConfig(
     transport: createTransport(tempDir),
     listeners: createListeners(),
 
-    sandbox: {
-      cwdOnly: true,
-      allowNetwork: true,
-      allowExec: true,
-    },
-
     admission: {
       maxConcurrentDelegations: 3,
       maxTtlSeconds: 7200,
     },
-    defaults: {
-      autoAccept: false,
+    assignment: {
+      sandbox: {
+        cwdOnly: true,
+        allowNetwork: true,
+        allowExec: true,
+      },
     },
 
     hooks: {
-      onInvite: async (invite: InviteMessage) => {
+      onAdmissionCheck: async (invite: InviteMessage) => {
         console.log(`[AWCP] INVITE: ${invite.delegationId} - ${invite.task.description}`);
-        return true;
       },
 
-      onTaskStart: async (ctx: TaskStartContext) => {
+      onTaskStart: (ctx: TaskStartContext) => {
         const resolvedWorkDir = resolveWorkDir(ctx);
         console.log(`[AWCP] Task started: ${ctx.delegationId}`);
         console.log(`[AWCP] Working directory: ${resolvedWorkDir}`);
@@ -100,7 +90,7 @@ export function createAwcpConfig(
           leaseExpiresAt: new Date(ctx.lease.expiresAt),
         });
 
-        await gatewayManager.updateWorkspace(resolvedWorkDir);
+        gatewayManager.updateWorkspace(resolvedWorkDir);
       },
 
       onTaskComplete: (delegationId: string, _summary: string) => {

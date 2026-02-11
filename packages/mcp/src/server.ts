@@ -15,7 +15,7 @@
 
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { DelegatorDaemonClient } from '@awcp/sdk/delegator/client';
-import type { Delegation, SnapshotPolicy, AuthCredential } from '@awcp/core';
+import type { Delegation, SnapshotMode, AuthCredential } from '@awcp/core';
 import { resolve, isAbsolute } from 'node:path';
 
 import {
@@ -59,7 +59,7 @@ export interface AwcpMcpServerOptions {
   daemonUrl?: string;
   timeout?: number;
   defaultTtl?: number;
-  defaultSnapshotMode?: SnapshotPolicy;
+  defaultSnapshotMode?: SnapshotMode;
   peers?: PeersContext;
 }
 
@@ -523,4 +523,3 @@ function formatDelegationStatus(delegation: Delegation): string {
   return lines.join('\n');
 }
 
-export { DelegatorDaemonClient } from '@awcp/sdk/delegator/client';

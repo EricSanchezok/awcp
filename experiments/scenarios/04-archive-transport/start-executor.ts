@@ -7,43 +7,32 @@
 import { createServer } from 'node:http';
 import express, { json } from 'express';
 import { ExecutorService } from '@awcp/sdk';
+import type { TaskExecutionContext, TaskExecutionResult } from '@awcp/sdk';
 import { ArchiveExecutorTransport } from '@awcp/transport-archive';
 import type { AwcpMessage } from '@awcp/core';
-import { resolve } from 'node:path';
+import { resolve, join } from 'node:path';
+import { readFile, writeFile } from 'node:fs/promises';
 
 const SCENARIO_DIR = process.env.SCENARIO_DIR || process.cwd();
 const PORT = parseInt(process.env.EXECUTOR_PORT || '4001', 10);
 
-// Simple mock executor that modifies files
 const mockExecutor = {
-  async execute(context: any, eventBus: any) {
-    const workDir = context.userMessage.parts
-      .find((p: any) => p.text?.includes('Working directory:'))
-      ?.text?.match(/Working directory: (.+)/)?.[1];
+  async execute(context: TaskExecutionContext): Promise<TaskExecutionResult> {
+    const workDir = context.workPath;
+    const helloPath = join(workDir, 'hello.txt');
 
-    if (workDir) {
-      const fs = await import('node:fs/promises');
-      const path = await import('node:path');
-      
-      // Read and modify hello.txt
-      const helloPath = path.join(workDir, 'hello.txt');
-      try {
-        const content = await fs.readFile(helloPath, 'utf-8');
-        const newContent = content + `\nModified via Archive Transport at ${new Date().toISOString()}`;
-        await fs.writeFile(helloPath, newContent);
-        
-        eventBus.emit('event', {
-          kind: 'message',
-          role: 'assistant',
-          parts: [{ kind: 'text', text: `Modified hello.txt successfully` }],
-        });
-      } catch (err) {
-        eventBus.emit('event', {
-          kind: 'message',
-          role: 'assistant',
-          parts: [{ kind: 'text', text: `Error: ${err}` }],
-        });
-      }
+    try {
+      const content = await readFile(helloPath, 'utf-8');
+      const newContent = content + `\nModified via Archive Transport at ${new Date().toISOString()}`;
+      await writeFile(helloPath, newContent);
+
+      return {
+        summary: 'Modified hello.txt successfully',
+      };
+    } catch (err) {
+      return {
+        summary: `Error modifying hello.txt: ${err}`,
+      };
     }
   },
 };
@@ -64,7 +53,7 @@ async function main() {
   console.log('');
 
   const executorService = new ExecutorService({
-    executor: mockExecutor as any,
+    executor: mockExecutor,
     config: {
       workDir,
       transport: new ArchiveExecutorTransport({ tempDir }),

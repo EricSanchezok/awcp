@@ -18,7 +18,7 @@ import { ensureDaemonRunning, type AutoDaemonOptions } from '../auto-daemon.js';
 import { discoverPeers, type PeersContext } from '../peer-discovery.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { createWriteStream, type WriteStream } from 'node:fs';
-import type { AccessMode, SnapshotPolicy } from '@awcp/core';
+import type { AccessMode, SnapshotMode } from '@awcp/core';
 
 interface ParsedArgs {
   // Daemon
@@ -37,7 +37,7 @@ interface ParsedArgs {
   maxSingleFileBytes?: number;
 
   // Snapshot
-  snapshotMode?: SnapshotPolicy;
+  snapshotMode?: SnapshotMode;
 
   // Defaults
   defaultTtl?: number;
@@ -62,8 +62,7 @@ interface ParsedArgs {
   gitAuthType?: 'token' | 'ssh' | 'none';
   gitToken?: string;
   gitSshKeyPath?: string;
-  gitBranchPrefix?: string;
-  gitCleanupRemoteBranch?: boolean;
+  gitDeleteRemoteBranch?: boolean;
 
   // Peers
   peerUrls: string[];
@@ -127,7 +126,7 @@ function parseArgs(args: string[]): ParsedArgs | null {
 
       // Snapshot
       case '--snapshot-mode':
-        result.snapshotMode = nextArg as SnapshotPolicy;
+        result.snapshotMode = nextArg as SnapshotMode;
         i++;
         break;
 
@@ -196,12 +195,8 @@ function parseArgs(args: string[]): ParsedArgs | null {
         result.gitSshKeyPath = nextArg;
         i++;
         break;
-      case '--git-branch-prefix':
-        result.gitBranchPrefix = nextArg;
-        i++;
-        break;
-      case '--git-cleanup-remote-branch':
-        result.gitCleanupRemoteBranch = nextArg !== 'false';
+      case '--git-delete-remote-branch':
+        result.gitDeleteRemoteBranch = nextArg !== 'false';
         i++;
         break;
 
@@ -279,8 +274,7 @@ async function main() {
       gitAuthType: parsed.gitAuthType,
       gitToken: parsed.gitToken,
       gitSshKeyPath: parsed.gitSshKeyPath,
-      gitBranchPrefix: parsed.gitBranchPrefix,
-      gitCleanupRemoteBranch: parsed.gitCleanupRemoteBranch,
+      gitDeleteRemoteBranch: parsed.gitDeleteRemoteBranch,
     };
 
     const result = await ensureDaemonRunning(options);
@@ -371,8 +365,7 @@ Git Transport Options:
   --git-auth-type TYPE       Authentication: token, ssh, none (default: none)
   --git-token TOKEN          Git token (for --git-auth-type token)
   --git-ssh-key-path PATH    SSH key path (for --git-auth-type ssh)
-  --git-branch-prefix PREFIX Branch prefix for task branches (default: awcp/)
-  --git-cleanup-remote-branch BOOL  Delete remote branch after cleanup (default: true)
+  --git-delete-remote-branch BOOL  Delete remote branch after release (default: true)
 
 Peer Discovery:
   --peers URL,...            Comma-separated list of executor base URLs
